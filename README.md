@@ -4,10 +4,11 @@
 
 **The incremental build system for AI applications.**
 
-[![PyPI version](https://img.shields.io/pypi/v/aimake.svg)](https://pypi.org/project/aimake/)
-[![Python](https://img.shields.io/pypi/pyversions/aimake.svg)](https://pypi.org/project/aimake/)
+[![PyPI](https://img.shields.io/pypi/v/aimake?label=PyPI&color=blue)](https://pypi.org/project/aimake/)
+[![Python](https://img.shields.io/pypi/pyversions/aimake?label=Python)](https://pypi.org/project/aimake/)
+[![Downloads](https://img.shields.io/pypi/dm/aimake?label=Downloads)](https://pypi.org/project/aimake/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/aimake/aimake/actions/workflows/ci.yml/badge.svg)](https://github.com/aimake/aimake/actions/workflows/ci.yml)
+[![CI](https://github.com/arjun988/aimake/actions/workflows/ci.yml/badge.svg)](https://github.com/arjun988/aimake/actions/workflows/ci.yml)
 
 *Like `make` + `git` + DVC — but designed for AI/ML pipelines.*
 
@@ -96,6 +97,8 @@ When only a prompt changes, everything upstream should be **skipped**. `aimake` 
 ```bash
 pip install aimake
 ```
+
+Published on [PyPI](https://pypi.org/project/aimake/).
 
 Or with [pipx](https://pipx.pypa.io/) for an isolated CLI:
 
@@ -771,7 +774,7 @@ aimake/
 ## Development
 
 ```bash
-git clone https://github.com/aimake/aimake
+git clone https://github.com/arjun988/aimake
 cd aimake
 pip install -e ".[all]"
 pytest tests/ -v
@@ -803,7 +806,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/aimake/aimake).
+Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/arjun988/aimake).
 
 ---
 

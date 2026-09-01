@@ -56,6 +56,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thread-safe SQLite for parallel builds
 - Windows-compatible cache atomic writes and console UTF-8 output
 
-[Unreleased]: https://github.com/aimake/aimake/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/aimake/aimake/releases/tag/v1.0.0
-[0.1.0]: https://github.com/aimake/aimake/releases/tag/v0.1.0
+[Unreleased]: https://github.com/arjun988/aimake/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/arjun988/aimake/releases/tag/v1.0.0
+[0.1.0]: https://github.com/arjun988/aimake/releases/tag/v0.1.0
