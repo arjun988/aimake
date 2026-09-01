@@ -62,3 +62,31 @@ quality_gates:
     maximum: 1000
   cost_usd:
     maximum: 1.00
+
+# Optional: remote S3 cache (requires pip install aimake[s3])
+# cache:
+#   remote:
+#     type: s3
+#     auto_pull: true
+#     auto_push: true
+#     s3:
+#       bucket: my-aimake-cache
+#       prefix: examples/rag/
+#       region: us-east-1
+
+# Optional: GPU scheduling and distributed workers
+# project:
+#   gpus: 1
+# artifacts:
+#   embeddings:
+#     resources:
+#       gpu: 1
+# workers:
+#   enabled: true
+#   workers:
+#     - name: gpu-node
+#       host: worker.example.com
+#       user: build
+#       gpus: 2
+#       jobs: 2
+#       workdir: /path/to/project

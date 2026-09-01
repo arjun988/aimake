@@ -258,3 +258,69 @@ def print_inspect(
         rich_console.print("\nMetrics:")
         for k, v in state.metrics.items():
             rich_console.print(f"  {k}: {v}")
+
+
+def print_diff(result) -> None:
+    """Print artifact diff result."""
+    from aimake.diff.engine import DiffResult
+
+    rich_console.print(f"\n[bold]DIFF: {result.artifact}[/bold] ({result.artifact_type})\n")
+    rich_console.print(f"Baseline: {result.baseline}")
+    rich_console.print(f"Status: {'[yellow]CHANGED[/yellow]' if result.has_changes else '[green]UNCHANGED[/green]'}")
+    rich_console.print(f"\n{result.summary}\n")
+
+    if result.changes:
+        rich_console.print("[bold]Changes:[/bold]")
+        for change in result.changes:
+            rich_console.print(f"  [cyan]{change.field}[/cyan]: {change.description}")
+            if change.old_value is not None:
+                rich_console.print(f"    old: {change.old_value}")
+            if change.new_value is not None:
+                rich_console.print(f"    new: {change.new_value}")
+
+    if result.unified_diff:
+        rich_console.print("\n[bold]Diff:[/bold]")
+        rich_console.print(result.unified_diff)
+
+
+def print_cache_status(status: dict) -> None:
+    rich_console.print("\n[bold]CACHE STATUS[/bold]\n")
+    if not status.get("enabled"):
+        rich_console.print("Remote cache: [dim]disabled[/dim]")
+        rich_console.print(f"Local entries: {status.get('local_entries', 'N/A')}")
+        return
+    rich_console.print(f"Remote type: {status.get('type')}")
+    rich_console.print(f"Local entries:  {status.get('local_entries', 0)}")
+    rich_console.print(f"Remote entries: {status.get('remote_entries', 0)}")
+    synced = status.get("synced", [])
+    only_local = status.get("only_local", [])
+    only_remote = status.get("only_remote", [])
+    if synced:
+        rich_console.print(f"\n[green]Synced:[/green] {len(synced)} entries")
+    if only_local:
+        rich_console.print(f"[yellow]Local only:[/yellow] {len(only_local)} entries")
+    if only_remote:
+        rich_console.print(f"[cyan]Remote only:[/cyan] {len(only_remote)} entries")
+
+
+def print_workers_status(status: dict) -> None:
+    rich_console.print("\n[bold]WORKERS & GPUs[/bold]\n")
+    gpus = status.get("gpus_detected", [])
+    if gpus:
+        for g in gpus:
+            rich_console.print(f"  GPU {g['index']}: {g['name']} ({g.get('memory_mb', '?')} MB)")
+    else:
+        rich_console.print("  [dim]No GPUs detected[/dim]")
+    rich_console.print(
+        f"\nGPUs available: {status.get('gpus_available', 0)} / {status.get('gpus_total', 0)}"
+    )
+    if status.get("workers_enabled"):
+        rich_console.print("\n[bold]Workers:[/bold]")
+        for w in status.get("workers", []):
+            rich_console.print(
+                f"  {w['name']} ({w['host']}): "
+                f"{w['active_jobs']}/{w['jobs']} jobs, "
+                f"{w['gpus_in_use']}/{w['gpus']} GPUs"
+            )
+    else:
+        rich_console.print("\n[dim]Distributed workers disabled[/dim]")

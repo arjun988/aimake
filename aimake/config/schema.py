@@ -13,6 +13,14 @@ class ProjectConfig(BaseModel):
     name: str = "my-ai-project"
     version: str = "1.0"
     jobs: int = 0
+    gpus: int = 0  # 0 = auto-detect local GPUs
+
+
+class ResourceConfig(BaseModel):
+    """Compute resources required by an artifact."""
+
+    gpu: int = 0
+    memory_gb: float = 0
 
 
 class MetricsConfig(BaseModel):
@@ -34,6 +42,8 @@ class ArtifactConfig(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
     metrics: MetricsConfig | None = None
+    resources: ResourceConfig = Field(default_factory=ResourceConfig)
+    worker: str | None = None
 
     @field_validator("type")
     @classmethod
@@ -69,6 +79,62 @@ class QualityGateConfig(BaseModel):
     maximum: float | None = None
 
 
+class S3CacheConfig(BaseModel):
+    """S3 remote cache configuration."""
+
+    bucket: str
+    prefix: str = "aimake/cache/"
+    region: str | None = None
+    endpoint_url: str | None = None
+
+
+class RemoteCacheConfig(BaseModel):
+    """Remote cache settings."""
+
+    type: str = "s3"
+    s3: S3CacheConfig | None = None
+    auto_pull: bool = True
+    auto_push: bool = True
+
+    @model_validator(mode="after")
+    def validate_remote(self) -> RemoteCacheConfig:
+        if self.type == "s3" and self.s3 is None:
+            raise ValueError("Remote cache type 's3' requires an 's3' configuration block")
+        return self
+
+
+class CacheConfig(BaseModel):
+    """Cache configuration."""
+
+    remote: RemoteCacheConfig | None = None
+
+
+class WorkerConfig(BaseModel):
+    """Remote build worker."""
+
+    name: str
+    host: str
+    user: str | None = None
+    gpus: int = 0
+    jobs: int = 1
+    workdir: str | None = None
+    ssh_options: list[str] = Field(default_factory=list)
+
+
+class WorkersConfig(BaseModel):
+    """Distributed worker pool."""
+
+    enabled: bool = False
+    workers: list[WorkerConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_workers(self) -> WorkersConfig:
+        names = [w.name for w in self.workers]
+        if len(names) != len(set(names)):
+            raise ValueError("Worker names must be unique")
+        return self
+
+
 class AimakeConfig(BaseModel):
     """Root configuration model for aimake.yaml."""
 
@@ -76,6 +142,8 @@ class AimakeConfig(BaseModel):
     artifacts: dict[str, ArtifactConfig] = Field(default_factory=dict)
     quality_gates: dict[str, QualityGateConfig] = Field(default_factory=dict)
     environment: list[str] = Field(default_factory=list)
+    cache: CacheConfig = Field(default_factory=CacheConfig)
+    workers: WorkersConfig = Field(default_factory=WorkersConfig)
 
     @model_validator(mode="after")
     def validate_artifacts(self) -> AimakeConfig:

@@ -430,6 +430,118 @@ def logs(
 
 
 @app.command()
+def diff(
+    artifact: str = typer.Argument(..., help="Artifact to diff"),
+    baseline: str = typer.Option("stored", "--baseline", "-b", help="Baseline: stored, lock, current"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show what changed in an artifact (dataset, model, prompt)."""
+    try:
+        project = _load_project(config)
+        result = project.diff(artifact, baseline=baseline)
+        console.print_diff(result)
+        project.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+cache_app = typer.Typer(help="Remote cache management.")
+app.add_typer(cache_app, name="cache")
+
+
+@cache_app.command("status")
+def cache_status(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show local and remote cache status."""
+    try:
+        project = _load_project(config)
+        status = project.cache_status()
+        console.print_cache_status(status)
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@cache_app.command("push")
+def cache_push(
+    fingerprint: Optional[str] = typer.Argument(None, help="Specific fingerprint to push"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Push local cache entries to remote storage (S3)."""
+    try:
+        project = _load_project(config)
+        if not project.config.cache.remote:
+            console.print_error("Remote cache not configured in aimake.yaml")
+            raise typer.Exit(code=1)
+        pushed = project.cache_push(fingerprint)
+        console.print_success(f"Pushed {len(pushed)} cache entry(s)")
+        for fp in pushed:
+            console.print_info(f"  {fp[:48]}...")
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@cache_app.command("pull")
+def cache_pull(
+    fingerprint: Optional[str] = typer.Argument(None, help="Specific fingerprint to pull"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Pull cache entries from remote storage (S3)."""
+    try:
+        project = _load_project(config)
+        if not project.config.cache.remote:
+            console.print_error("Remote cache not configured in aimake.yaml")
+            raise typer.Exit(code=1)
+        pulled = project.cache_pull(fingerprint)
+        console.print_success(f"Pulled {len(pulled)} cache entry(s)")
+        for fp in pulled:
+            console.print_info(f"  {fp[:48]}...")
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@cache_app.command("sync")
+def cache_sync(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Pull missing entries from remote, push new local entries."""
+    try:
+        project = _load_project(config)
+        if not project.config.cache.remote:
+            console.print_error("Remote cache not configured in aimake.yaml")
+            raise typer.Exit(code=1)
+        pulled = project.cache_pull()
+        pushed = project.cache_push()
+        console.print_success(f"Sync complete: {len(pulled)} pulled, {len(pushed)} pushed")
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def workers(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show GPU and distributed worker status."""
+    try:
+        project = _load_project(config)
+        status = project.workers_status()
+        console.print_workers_status(status)
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def plugins() -> None:
     """List available plugins (future integrations)."""
     console.print_header("PLUGINS")

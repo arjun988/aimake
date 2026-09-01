@@ -23,6 +23,8 @@ from aimake.models import (
     ExplainResult,
 )
 from aimake.state.database import StateDatabase
+from aimake.scheduling.resources import ResourcePool
+from aimake.scheduling.workers import WorkerPool
 
 
 class BuildRunner:
@@ -47,12 +49,20 @@ class BuildRunner:
         self.debug = debug
         self.verbose = verbose
 
+        self.resource_pool = ResourcePool(config.project.gpus)
+        self.worker_pool = WorkerPool(config.workers)
+
         self.fingerprinter = Fingerprinter(
             project_root, config, graph, debug=debug
         )
         self.planner = Planner(graph)
         self.process = ProcessRunner(project_root, debug=debug)
-        self.scheduler = BuildScheduler(graph, jobs=self.jobs)
+        self.scheduler = BuildScheduler(
+            graph,
+            jobs=self.jobs,
+            resource_pool=self.resource_pool,
+            worker_pool=self.worker_pool,
+        )
         self.metrics_parser = MetricsParser(project_root)
         self.db: StateDatabase = cache.state_db
 
@@ -233,7 +243,12 @@ class BuildRunner:
             self.project_root, self.config, graph, debug=self.debug
         )
         self.planner = Planner(graph)
-        self.scheduler = BuildScheduler(graph, jobs=self.jobs)
+        self.scheduler = BuildScheduler(
+            graph,
+            jobs=self.jobs,
+            resource_pool=self.resource_pool,
+            worker_pool=self.worker_pool,
+        )
 
         self.compute_fingerprints()
         self.compute_statuses(force=force)
@@ -284,13 +299,61 @@ class BuildRunner:
                 if node.is_passive:
                     self._handle_passive(node, fp)
                 elif node.config.command:
-                    record = self.process.run(
-                        name,
-                        node.config.command,
-                        env_vars=list(
-                            set(self.config.environment + node.config.environment)
-                        ),
-                    )
+                    gpu_indices: list[int] = []
+                    worker_state = None
+                    worker_cfg = None
+                    gpu_needed = node.config.resources.gpu
+                    extra_env: dict[str, str] = {}
+
+                    try:
+                        if gpu_needed > 0:
+                            gpu_indices = self.resource_pool.acquire(gpu_needed, name) or []
+                            if len(gpu_indices) < gpu_needed:
+                                raise ExecutionError(
+                                    name,
+                                    node.config.command,
+                                    0,
+                                    f"Not enough GPUs available (need {gpu_needed})",
+                                )
+                            extra_env.update(self.resource_pool.gpu_env(gpu_indices))
+
+                        if self.worker_pool.enabled:
+                            worker_state = self.worker_pool.select_worker(
+                                worker_name=node.config.worker,
+                                gpu_required=gpu_needed,
+                            )
+                            if node.config.worker and worker_state is None:
+                                raise ExecutionError(
+                                    name,
+                                    node.config.command,
+                                    0,
+                                    f"Worker '{node.config.worker}' unavailable",
+                                )
+                            if worker_state:
+                                if not self.worker_pool.acquire(worker_state, gpu_needed):
+                                    raise ExecutionError(
+                                        name,
+                                        node.config.command,
+                                        0,
+                                        f"Worker '{worker_state.config.name}' at capacity",
+                                    )
+                                worker_cfg = worker_state.config
+
+                        record = self.process.run(
+                            name,
+                            node.config.command,
+                            env_vars=list(
+                                set(self.config.environment + node.config.environment)
+                            ),
+                            extra_env=extra_env or None,
+                            worker=worker_cfg,
+                        )
+                    finally:
+                        if gpu_indices:
+                            self.resource_pool.release(gpu_indices)
+                        if worker_state:
+                            self.worker_pool.release(worker_state, gpu_needed)
+
                     self._log(record.stdout)
                     if record.stderr and self.verbose:
                         self._log(record.stderr)

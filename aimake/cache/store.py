@@ -1,4 +1,4 @@
-"""Unified cache interface combining SQLite metadata and filesystem storage."""
+"""Unified cache interface with optional remote (S3) backend."""
 
 from __future__ import annotations
 
@@ -6,18 +6,33 @@ from pathlib import Path
 from typing import Any
 
 from aimake.cache.filesystem import FilesystemCache
+from aimake.cache.s3 import S3Cache
+from aimake.config.schema import AimakeConfig, RemoteCacheConfig
 from aimake.models import ArtifactStatus
 from aimake.state.database import StateDatabase
 
 
 class Cache:
-    """High-level cache coordinating state DB and filesystem cache."""
+    """High-level cache coordinating state DB, local filesystem, and remote storage."""
 
-    def __init__(self, aimake_dir: Path, project_root: Path) -> None:
+    def __init__(
+        self,
+        aimake_dir: Path,
+        project_root: Path,
+        config: AimakeConfig | None = None,
+    ) -> None:
         self.aimake_dir = aimake_dir
         self.project_root = project_root
+        self.config = config
         self.db = StateDatabase(aimake_dir)
         self.fs = FilesystemCache(aimake_dir)
+        self.remote: S3Cache | None = None
+        self.remote_config: RemoteCacheConfig | None = None
+
+        if config and config.cache.remote:
+            self.remote_config = config.cache.remote
+            if config.cache.remote.type == "s3" and config.cache.remote.s3:
+                self.remote = S3Cache(config.cache.remote.s3)
 
     def close(self) -> None:
         self.db.close()
@@ -32,15 +47,20 @@ class Cache:
         return self.db.get_all_artifacts()
 
     def is_cache_hit(self, name: str, fingerprint: str) -> bool:
-        """Check if artifact can be restored from cache."""
-        stored = self.db.get_artifact(name)
-        if stored and stored.fingerprint == fingerprint:
-            if self.fs.has(fingerprint):
-                return self.fs.verify(fingerprint)
-        return self.fs.has(fingerprint) and self.fs.verify(fingerprint)
+        """Check if artifact can be restored from local or remote cache."""
+        if self.fs.has(fingerprint) and self.fs.verify(fingerprint):
+            return True
+        if self.remote and self.remote_config and self.remote_config.auto_pull:
+            if self.remote.has(fingerprint):
+                self.remote.pull(fingerprint, self.fs)
+                return self.fs.has(fingerprint) and self.fs.verify(fingerprint)
+        return False
 
     def restore(self, name: str, fingerprint: str, outputs: list[str]) -> bool:
-        """Restore artifact from cache."""
+        """Restore artifact from cache (local first, then remote)."""
+        if not self.fs.has(fingerprint) and self.remote and self.remote_config:
+            if self.remote_config.auto_pull and self.remote.has(fingerprint):
+                self.remote.pull(fingerprint, self.fs)
         if not self.fs.has(fingerprint):
             return False
         return self.fs.restore(fingerprint, outputs, self.project_root)
@@ -58,7 +78,7 @@ class Cache:
         metrics: dict[str, Any] | None = None,
         exit_code: int = 0,
     ) -> None:
-        """Store artifact in cache after successful build."""
+        """Store artifact in local cache and optionally push to remote."""
         outputs = outputs or []
         self.fs.store(
             fingerprint,
@@ -81,21 +101,66 @@ class Cache:
             duration=duration,
             exit_code=exit_code,
         )
+        if self.remote and self.remote_config and self.remote_config.auto_push:
+            self.remote.push(fingerprint, self.fs)
+
+    def push_remote(self, fingerprint: str | None = None) -> list[str]:
+        """Push cache entries to remote storage."""
+        if not self.remote:
+            return []
+        pushed: list[str] = []
+        fps = [fingerprint] if fingerprint else self.fs.list_entries()
+        for fp in fps:
+            full_fp = fp if fp.startswith("sha256:") else f"sha256:{fp}"
+            if self.remote.push(full_fp, self.fs):
+                pushed.append(full_fp)
+        return pushed
+
+    def pull_remote(self, fingerprint: str | None = None) -> list[str]:
+        """Pull cache entries from remote storage."""
+        if not self.remote:
+            return []
+        pulled: list[str] = []
+        if fingerprint:
+            fps = [fingerprint]
+        else:
+            fps = [f"sha256:{fp}" for fp in self.remote.list_entries()]
+        for fp in fps:
+            if self.remote.pull(fp, self.fs):
+                pulled.append(fp)
+        return pulled
+
+    def remote_status(self) -> dict[str, Any]:
+        """Return remote cache status."""
+        local = set(self.fs.list_entries())
+        if not self.remote:
+            return {"enabled": False, "local_entries": len(local)}
+        remote = set(self.remote.list_entries())
+        return {
+            "enabled": True,
+            "type": self.remote_config.type if self.remote_config else "unknown",
+            "local_entries": len(local),
+            "remote_entries": len(remote),
+            "only_local": sorted(local - remote),
+            "only_remote": sorted(remote - local),
+            "synced": sorted(local & remote),
+        }
 
     def invalidate(self, name: str) -> None:
-        """Remove artifact from state (not filesystem cache)."""
         state = self.db.get_artifact(name)
         if state and state.fingerprint:
             self.fs.remove(state.fingerprint)
         self.db.delete_artifact(name)
 
     def clear_all(self) -> None:
-        """Clear all cache and state."""
         self.fs.clear()
         self.db.clear_artifacts()
 
+    def clear_remote(self) -> None:
+        if self.remote:
+            self.remote.clear()
+
     def verify_integrity(self) -> list[str]:
-        """Check cache integrity, return list of corrupted entries."""
         corrupted = []
         for fp in self.fs.list_entries():
             if not self.fs.verify(fp):

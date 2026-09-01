@@ -26,9 +26,11 @@ from aimake.constants import (
 )
 from aimake.execution.runner import BuildRunner
 from aimake.graph.dag import Graph, GraphError
-from aimake.lock import generate_lock, write_lock
+from aimake.lock import generate_lock, read_lock, write_lock
 from aimake.metrics.quality import QualityGateChecker
 from aimake.models import ArtifactStatus, BuildPlan, BuildResult, ExplainResult
+from aimake.diff.engine import DiffEngine
+from aimake.scheduling.resources import GPUDetector
 
 
 class Project:
@@ -50,7 +52,7 @@ class Project:
         self.verbose = verbose
 
         self.graph = Graph.from_config(config)
-        self.cache = Cache(self.aimake_dir, self.project_root)
+        self.cache = Cache(self.aimake_dir, self.project_root, config)
         self._runner: BuildRunner | None = None
 
     @classmethod
@@ -226,6 +228,67 @@ class Project:
         numeric = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
         return checker.check(numeric)
 
+    def diff(self, artifact: str, *, baseline: str = "stored") -> "DiffResult":
+        """Diff an artifact against a baseline (stored, lock, or current)."""
+        from aimake.diff.engine import DiffResult
+
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+
+        node = self.graph.get(artifact)
+        runner = self.runner
+        current_fp = runner.compute_fingerprints().get(artifact)
+        baseline_fp: str | None = None
+        baseline_label = baseline
+
+        if baseline == "stored":
+            state = self.cache.get_artifact_state(artifact)
+            baseline_fp = state.fingerprint if state else None
+        elif baseline == "lock":
+            lock = read_lock(self.project_root)
+            if lock and "artifacts" in lock:
+                entry = lock["artifacts"].get(artifact, {})
+                baseline_fp = entry.get("fingerprint")
+        elif baseline == "current":
+            baseline_fp = current_fp
+            baseline_label = "current"
+
+        engine = DiffEngine(self.project_root)
+        return engine.diff_artifact(
+            artifact,
+            node.config,
+            current_fingerprint=current_fp,
+            baseline_fingerprint=baseline_fp,
+            baseline_label=baseline_label,
+        )
+
+    def cache_push(self, fingerprint: str | None = None) -> list[str]:
+        """Push local cache entries to remote storage."""
+        return self.cache.push_remote(fingerprint)
+
+    def cache_pull(self, fingerprint: str | None = None) -> list[str]:
+        """Pull cache entries from remote storage."""
+        return self.cache.pull_remote(fingerprint)
+
+    def cache_status(self) -> dict[str, Any]:
+        """Return local and remote cache status."""
+        return self.cache.remote_status()
+
+    def workers_status(self) -> dict[str, Any]:
+        """Return GPU and worker pool status."""
+        gpus = GPUDetector.detect()
+        pool = self.runner.resource_pool if self._runner else None
+        workers = self.runner.worker_pool if self._runner else None
+        return {
+            "gpus_detected": [
+                {"index": g.index, "name": g.name, "memory_mb": g.memory_mb} for g in gpus
+            ],
+            "gpus_total": pool.total_gpus if pool else len(gpus),
+            "gpus_available": pool.available_gpus if pool else len(gpus),
+            "workers_enabled": self.config.workers.enabled,
+            "workers": workers.list_workers() if workers and workers.enabled else [],
+        }
+
     def doctor(self) -> list[str]:
         """Run project health checks."""
         issues: list[str] = []
@@ -248,7 +311,31 @@ class Project:
         # Cache integrity
         corrupted = self.cache.verify_integrity()
         for fp in corrupted:
-            issues.append(f"WARNING: Corrupted cache entry: {fp[:16]}...")
+            issues.append(f"WARNING: Corrupted local cache entry: {fp[:16]}...")
+
+        # Remote cache
+        if self.config.cache.remote:
+            if not self.cache.remote:
+                issues.append("WARNING: Remote cache configured but S3 backend unavailable (install aimake[s3])")
+            else:
+                status = self.cache.remote_status()
+                issues.append(f"OK: Remote cache enabled ({status.get('remote_entries', 0)} entries)")
+
+        # GPU / workers
+        gpus = GPUDetector.detect()
+        if self.config.project.gpus > 0 or any(
+            a.resources.gpu > 0 for a in self.config.artifacts.values()
+        ):
+            if gpus:
+                issues.append(f"OK: {len(gpus)} GPU(s) detected")
+            else:
+                issues.append("WARNING: GPU resources configured but no GPUs detected")
+
+        if self.config.workers.enabled:
+            if not self.config.workers.workers:
+                issues.append("ERROR: Workers enabled but none configured")
+            else:
+                issues.append(f"OK: {len(self.config.workers.workers)} worker(s) configured")
 
         # Broken artifacts (missing outputs)
         for node in self.graph:

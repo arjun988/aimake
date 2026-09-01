@@ -338,6 +338,104 @@ See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full workflow
 
 ---
 
+## Remote cache (S3)
+
+Configure remote cache in `aimake.yaml`:
+
+```yaml
+cache:
+  remote:
+    type: s3
+    auto_pull: true
+    auto_push: true
+    s3:
+      bucket: my-aimake-cache
+      prefix: projects/my-rag-app/
+      region: us-east-1
+      # endpoint_url: https://minio.example.com  # S3-compatible
+```
+
+Credentials via environment (never in config):
+
+```bash
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+pip install aimake[s3]
+```
+
+Commands:
+
+```bash
+aimake cache status    # local vs remote entries
+aimake cache push      # upload local cache to S3
+aimake cache pull      # download from S3
+aimake cache sync      # bidirectional sync
+```
+
+On build, `auto_pull` restores missing entries from S3; `auto_push` uploads after successful builds.
+
+---
+
+## GPU scheduling & distributed workers
+
+Per-artifact GPU requirements:
+
+```yaml
+project:
+  gpus: 2          # local GPUs (0 = auto-detect)
+
+artifacts:
+  embeddings:
+    type: embedding
+    resources:
+      gpu: 1       # requires 1 GPU
+    command: python src/embed.py
+    outputs:
+      - build/embeddings/
+```
+
+Distributed workers via SSH:
+
+```yaml
+workers:
+  enabled: true
+  workers:
+    - name: gpu-node-1
+      host: 10.0.0.5
+      user: build
+      gpus: 2
+      jobs: 2
+      workdir: /home/build/my-rag-app
+
+artifacts:
+  embeddings:
+    worker: gpu-node-1   # run on this worker
+    resources:
+      gpu: 1
+```
+
+```bash
+aimake workers    # show GPUs and worker status
+```
+
+The scheduler respects GPU availability and worker capacity while maintaining DAG ordering.
+
+---
+
+## Artifact diffs
+
+Compare what changed in datasets, models, and prompts:
+
+```bash
+aimake diff prompt              # vs last stored build
+aimake diff dataset --baseline lock
+aimake diff model --baseline stored
+```
+
+Shows fingerprint changes, dataset stats, model parameters, and prompt content changes.
+
+---
+
 ## Architecture
 
 ```
@@ -348,6 +446,9 @@ aimake/
 ├── graph/              # DAG, topological sort, planner
 ├── hashing/            # SHA-256 fingerprints
 ├── cache/              # SQLite + filesystem cache
+├── cache/              # Local + S3 remote cache
+├── scheduling/         # GPU pool, distributed workers
+├── diff/               # Dataset/model/prompt diffs
 ├── execution/          # Subprocess runner, parallel scheduler
 ├── artifacts/          # Type-specific artifact handlers
 ├── metrics/            # Metrics parsing, quality gates
@@ -389,9 +490,10 @@ pytest tests/ -v
 
 ## Roadmap
 
-- **Phase 2:** Remote cache, S3, artifact registry, diff tools, web dashboard
-- **Phase 3:** Distributed builds, GPU-aware scheduling, experiment comparison
-- **Phase 4:** Plugin ecosystem (Hugging Face, MLflow, W&B, DVC, Docker)
+- **Done:** Remote S3 cache, GPU scheduling, distributed workers, artifact diffs
+- **Phase 2:** Web dashboard, artifact registry, Hugging Face / MLflow plugins
+- **Phase 3:** Experiment comparison, automatic optimization
+- **Phase 4:** Optional `aimake cloud` (CLI remains fully local)
 
 The plugin interface is designed but integrations are not yet implemented. Use `aimake plugins` to see planned integrations.
 

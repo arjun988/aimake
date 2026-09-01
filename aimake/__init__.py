@@ -4,6 +4,7 @@ import aimake.artifacts  # noqa: F401 — register artifact types
 
 from aimake.artifacts.base import Artifact
 from aimake.cache.store import Cache
+from aimake.diff.engine import DiffEngine
 from aimake.graph.dag import Graph
 from aimake.hashing.fingerprint import Fingerprinter
 from aimake.models import ArtifactState, ArtifactStatus, BuildResult
@@ -17,6 +18,7 @@ __all__ = [
     "ArtifactStatus",
     "BuildResult",
     "Cache",
+    "DiffEngine",
     "Fingerprinter",
     "Graph",
     "Project",
