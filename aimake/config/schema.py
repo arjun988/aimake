@@ -135,6 +135,142 @@ class WorkersConfig(BaseModel):
         return self
 
 
+class SearchParamConfig(BaseModel):
+    """Hyperparameter search space definition."""
+
+    type: str = "float"  # float, int, categorical
+    low: float | None = None
+    high: float | None = None
+    step: float | None = None
+    choices: list[Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_search_param(self) -> SearchParamConfig:
+        if self.type == "categorical":
+            if not self.choices:
+                raise ValueError("Categorical search params require 'choices'")
+        elif self.low is None or self.high is None:
+            raise ValueError(f"Search param type '{self.type}' requires 'low' and 'high'")
+        elif self.low > self.high:
+            raise ValueError("Search param 'low' must be <= 'high'")
+        return self
+
+
+class ObjectiveConfig(BaseModel):
+    """Optimization objective (single- or multi-metric)."""
+
+    metric: str | None = None
+    metrics: list[str] | None = None
+    direction: str = "maximize"  # maximize | minimize (single-objective default)
+    directions: list[str] | None = None  # per-metric directions for multi-objective
+    artifact: str | None = None  # artifact with metrics; auto-detected if omitted
+
+    @field_validator("direction")
+    @classmethod
+    def normalize_direction(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ("maximize", "minimize"):
+            raise ValueError("Objective direction must be 'maximize' or 'minimize'")
+        return v
+
+    @field_validator("directions")
+    @classmethod
+    def normalize_directions(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        normalized = []
+        for item in v:
+            item = item.lower()
+            if item not in ("maximize", "minimize"):
+                raise ValueError("Objective directions must be 'maximize' or 'minimize'")
+            normalized.append(item)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_objectives(self) -> ObjectiveConfig:
+        if not self.metric and not self.metrics:
+            raise ValueError("Objective requires 'metric' or 'metrics'")
+        if self.metrics and self.directions and len(self.directions) != len(self.metrics):
+            raise ValueError("'directions' length must match 'metrics'")
+        return self
+
+    def is_multi_objective(self) -> bool:
+        return bool(self.metrics and len(self.metrics) > 1)
+
+    def metric_names(self) -> list[str]:
+        if self.metrics:
+            return list(self.metrics)
+        assert self.metric is not None
+        return [self.metric]
+
+    def metric_directions(self) -> dict[str, str]:
+        if self.metrics and self.directions:
+            return dict(zip(self.metrics, self.directions, strict=True))
+        if self.metrics:
+            return {name: self.direction for name in self.metrics}
+        assert self.metric is not None
+        return {self.metric: self.direction}
+
+
+class EarlyStoppingConfig(BaseModel):
+    """Stop optimization when progress stalls."""
+
+    enabled: bool = False
+    patience: int = 3
+    min_trials: int = 2
+    min_delta: float = 0.0
+
+    @model_validator(mode="after")
+    def validate_early_stopping(self) -> EarlyStoppingConfig:
+        if self.patience < 1:
+            raise ValueError("early_stopping.patience must be >= 1")
+        if self.min_trials < 1:
+            raise ValueError("early_stopping.min_trials must be >= 1")
+        return self
+
+
+class MLflowConfig(BaseModel):
+    """MLflow experiment tracking export."""
+
+    enabled: bool = False
+    tracking_uri: str | None = None
+    experiment_name: str | None = None
+    registry_uri: str | None = None
+
+
+class OptimizationConfig(BaseModel):
+    """Automatic hyperparameter optimization."""
+
+    trials: int = 5
+    strategy: str = "grid"  # grid | random | bayesian | optuna
+    parameter_artifact: str | None = None
+    search_space: dict[str, SearchParamConfig] = Field(default_factory=dict)
+    objective: ObjectiveConfig | None = None
+    early_stopping: EarlyStoppingConfig | None = None
+    mlflow: MLflowConfig | None = None
+    seed: int | None = None
+
+    @field_validator("strategy")
+    @classmethod
+    def normalize_strategy(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ("grid", "random", "bayesian", "optuna"):
+            raise ValueError(
+                "Optimization strategy must be 'grid', 'random', 'bayesian', or 'optuna'"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_optimization(self) -> OptimizationConfig:
+        if not self.search_space:
+            raise ValueError("Optimization requires a non-empty 'search_space'")
+        if self.objective is None:
+            raise ValueError("Optimization requires an 'objective' block")
+        if self.trials < 1:
+            raise ValueError("Optimization trials must be >= 1")
+        return self
+
+
 class AimakeConfig(BaseModel):
     """Root configuration model for aimake.yaml."""
 
@@ -144,6 +280,7 @@ class AimakeConfig(BaseModel):
     environment: list[str] = Field(default_factory=list)
     cache: CacheConfig = Field(default_factory=CacheConfig)
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
+    optimization: OptimizationConfig | None = None
 
     @model_validator(mode="after")
     def validate_artifacts(self) -> AimakeConfig:

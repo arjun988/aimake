@@ -223,6 +223,66 @@ class Project:
         """Get build history."""
         return self.cache.state_db.get_builds(limit)
 
+    def compare_builds(
+        self,
+        baseline: str | int = "previous",
+        candidate: str | int = "latest",
+    ) -> "BuildComparison":
+        """Compare metrics and parameters between two builds."""
+        from aimake.experiments.compare import CompareEngine
+
+        engine = CompareEngine(self.cache.state_db)
+        higher, lower = self._metric_directions()
+        return engine.compare(
+            baseline,
+            candidate,
+            higher_is_better=higher,
+            lower_is_better=lower,
+        )
+
+    def optimize(
+        self,
+        *,
+        trials: int | None = None,
+        dry_run: bool = False,
+        name: str | None = None,
+    ) -> "OptimizationResult":
+        """Run hyperparameter optimization from aimake.yaml search space."""
+        from aimake.experiments.optimizer import Optimizer
+
+        optimizer = Optimizer(
+            self.project_root,
+            self.config,
+            self.cache,
+            debug=self.debug,
+            verbose=self.verbose,
+        )
+        return optimizer.run(trials=trials, dry_run=dry_run, name=name)
+
+    def experiments(self, limit: int = 20) -> list[dict[str, Any]]:
+        """List optimization experiments."""
+        return self.cache.state_db.get_experiments(limit)
+
+    def experiment_trials(self, experiment_id: int) -> list[dict[str, Any]]:
+        """List trials for an experiment."""
+        return self.cache.state_db.get_experiment_trials(experiment_id)
+
+    def _metric_directions(self) -> tuple[set[str], set[str]]:
+        higher: set[str] = set()
+        lower: set[str] = set()
+        if self.config.optimization and self.config.optimization.objective:
+            for name, direction in self.config.optimization.objective.metric_directions().items():
+                if direction == "maximize":
+                    higher.add(name)
+                else:
+                    lower.add(name)
+        for name, gate in self.config.quality_gates.items():
+            if gate.minimum is not None:
+                higher.add(name)
+            if gate.maximum is not None:
+                lower.add(name)
+        return higher, lower
+
     def check_quality_gates(self, metrics: dict[str, Any]) -> list:
         """Check metrics against quality gates."""
         checker = QualityGateChecker(self.config)

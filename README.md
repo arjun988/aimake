@@ -450,6 +450,88 @@ Shows fingerprint changes, dataset stats, model parameters, and prompt content c
 
 ---
 
+## Experiment comparison
+
+Compare metrics and parameters across builds:
+
+```bash
+aimake compare                  # previous vs latest successful build
+aimake compare 3 5              # build #3 vs #5
+aimake experiments list         # list optimization runs
+aimake experiments show 1       # trial details
+```
+
+Uses build history stored in `.aimake/state.db` — metrics, git commit, and trial parameters when present.
+
+---
+
+## Automatic optimization
+
+Define a search space in `aimake.yaml` and run end-to-end hyperparameter search:
+
+```yaml
+optimization:
+  trials: 5
+  strategy: grid          # or random
+  parameter_artifact: evaluation
+  search_space:
+    temperature:
+      type: float
+      low: 0.8
+      high: 1.2
+      step: 0.2
+  objective:
+    metric: accuracy
+    direction: maximize
+    artifact: evaluation
+```
+
+```bash
+aimake optimize                 # run trials (rebuild + evaluate each)
+aimake optimize --dry-run       # preview trial parameter sets
+aimake optimize -n 10           # override trial count
+```
+
+Each trial updates `parameters` on the target artifact, injects `AIMAKE_PARAM_*` environment variables into commands, rebuilds the pipeline incrementally, and records results in the experiments table. The best trial is selected by the objective metric (or Pareto front for multi-objective runs).
+
+### Advanced strategies
+
+```yaml
+optimization:
+  strategy: bayesian       # or optuna (requires pip install aimake[optuna])
+  trials: 20
+  seed: 42
+  early_stopping:
+    enabled: true
+    patience: 5            # stop after 5 trials without improvement
+    min_trials: 10
+    min_delta: 0.001
+  mlflow:
+    enabled: true
+    tracking_uri: http://localhost:5000
+    experiment_name: my-rag-tuning
+```
+
+**Multi-objective Pareto** — optimize several metrics at once:
+
+```yaml
+  objective:
+    metrics: [accuracy, cost_usd]
+    directions: [maximize, minimize]
+    artifact: evaluation
+```
+
+After optimization, `aimake optimize` reports the Pareto front (non-dominated trials). Export all trials to MLflow with `pip install aimake[mlflow]` and `mlflow.enabled: true`.
+
+Scripts can read trial parameters from the environment:
+
+```python
+import os
+temperature = float(os.environ.get("AIMAKE_PARAM_TEMPERATURE", "1.0"))
+```
+
+---
+
 ## Architecture
 
 ```
@@ -463,6 +545,7 @@ aimake/
 ├── cache/              # Local + S3 remote cache
 ├── scheduling/         # GPU pool, distributed workers
 ├── diff/               # Dataset/model/prompt diffs
+├── experiments/        # Build comparison, hyperparameter optimization
 ├── execution/          # Subprocess runner, parallel scheduler
 ├── artifacts/          # Type-specific artifact handlers
 ├── metrics/            # Metrics parsing, quality gates
@@ -507,8 +590,10 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 ## Roadmap
 
 - **Done:** Remote S3 cache, GPU scheduling, distributed workers, artifact diffs
-- **Phase 2:** Web dashboard, artifact registry, Hugging Face / MLflow plugins
-- **Phase 3:** Experiment comparison, automatic optimization
+- **Done:** Experiment comparison (`aimake compare`), automatic optimization (`aimake optimize`)
+- **Done:** Bayesian/Optuna search, multi-objective Pareto, MLflow export, early stopping
+- **Phase 2:** Web dashboard, artifact registry, Hugging Face plugins
+- **Phase 3:** Hyperband pruning, Optuna multi-fidelity, experiment dashboards
 - **Phase 4:** Optional `aimake cloud` (CLI remains fully local)
 
 The plugin interface is designed but integrations are not yet implemented. Use `aimake plugins` to see planned integrations.

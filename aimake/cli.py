@@ -542,6 +542,93 @@ def workers(
 
 
 @app.command()
+def compare(
+    baseline: str = typer.Argument("previous", help="Baseline build: ID, latest, or previous"),
+    candidate: str = typer.Argument("latest", help="Candidate build: ID, latest, or previous"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Compare metrics between two builds."""
+    try:
+        project = _load_project(config)
+        result = project.compare_builds(baseline, candidate)
+        console.print_compare(result)
+        project.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def optimize(
+    trials: Optional[int] = typer.Option(None, "--trials", "-n", help="Number of trials"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show planned trials without building"),
+    name: Optional[str] = typer.Option(None, "--name", help="Experiment name"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Run automatic hyperparameter optimization."""
+    try:
+        project = _load_project(config)
+        result = project.optimize(trials=trials, dry_run=dry_run, name=name)
+        console.print_optimization_result(result)
+        project.close()
+        if not dry_run and not result.success:
+            raise typer.Exit(code=1)
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+experiments_app = typer.Typer(help="Experiment tracking and comparison.")
+
+
+@experiments_app.command("list")
+def experiments_list(
+    limit: int = typer.Option(20, "--limit", "-n"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """List optimization experiments."""
+    try:
+        project = _load_project(config)
+        console.print_experiments(project.experiments(limit))
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@experiments_app.command("show")
+def experiments_show(
+    experiment_id: int = typer.Argument(..., help="Experiment ID"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show trials for an experiment."""
+    try:
+        project = _load_project(config)
+        exp = project.cache.state_db.get_experiment(experiment_id)
+        if not exp:
+            console.print_error(f"Experiment #{experiment_id} not found")
+            raise typer.Exit(code=1)
+        trials = project.experiment_trials(experiment_id)
+        console.print(f"\n[bold]Experiment #{experiment_id}[/bold]: {exp.get('name')}\n")
+        for trial in trials:
+            params = json.loads(trial["parameters"]) if isinstance(trial.get("parameters"), str) else trial.get("parameters", {})
+            metrics = json.loads(trial["metrics"]) if isinstance(trial.get("metrics"), str) else trial.get("metrics", {})
+            console.print(
+                f"  Trial {trial['trial_number']}: "
+                f"build=#{trial.get('build_id', '-')} "
+                f"objective={trial.get('objective_value')} "
+                f"params={params} metrics={metrics}"
+            )
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+app.add_typer(experiments_app, name="experiments")
+
+
+@app.command()
 def plugins() -> None:
     """List available plugins (future integrations)."""
     console.print_header("PLUGINS")

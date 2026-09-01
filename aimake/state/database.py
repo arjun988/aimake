@@ -72,6 +72,34 @@ class StateDatabase:
 
     CREATE INDEX IF NOT EXISTS idx_builds_timestamp ON builds(timestamp);
     CREATE INDEX IF NOT EXISTS idx_execution_build ON execution_log(build_id);
+
+    CREATE TABLE IF NOT EXISTS experiments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        strategy TEXT,
+        objective_metric TEXT,
+        objective_direction TEXT,
+        config TEXT,
+        best_build_id INTEGER,
+        best_value REAL
+    );
+
+    CREATE TABLE IF NOT EXISTS experiment_trials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        experiment_id INTEGER NOT NULL,
+        trial_number INTEGER NOT NULL,
+        build_id INTEGER,
+        parameters TEXT,
+        metrics TEXT,
+        objective_value REAL,
+        status TEXT,
+        FOREIGN KEY (experiment_id) REFERENCES experiments(id),
+        FOREIGN KEY (build_id) REFERENCES builds(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_trials_experiment ON experiment_trials(experiment_id);
     """
 
     def __init__(self, aimake_dir: Path) -> None:
@@ -91,9 +119,21 @@ class StateDatabase:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(self.SCHEMA)
+        self._migrate(conn)
         with self._connections_lock:
             self._connections.append(conn)
         return conn
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Apply lightweight schema migrations for existing databases."""
+        build_cols = {row[1] for row in conn.execute("PRAGMA table_info(builds)")}
+        if "parameters" not in build_cols:
+            conn.execute("ALTER TABLE builds ADD COLUMN parameters TEXT")
+        if "experiment_id" not in build_cols:
+            conn.execute("ALTER TABLE builds ADD COLUMN experiment_id INTEGER")
+        if "trial_number" not in build_cols:
+            conn.execute("ALTER TABLE builds ADD COLUMN trial_number INTEGER")
+        conn.commit()
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -188,18 +228,31 @@ class StateDatabase:
         self.conn.execute("DELETE FROM artifacts")
         self.conn.commit()
 
-    def start_build(self, git: GitInfo | None = None) -> int:
+    def start_build(
+        self,
+        git: GitInfo | None = None,
+        *,
+        parameters: dict[str, Any] | None = None,
+        experiment_id: int | None = None,
+        trial_number: int | None = None,
+    ) -> int:
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.conn.execute(
             """
-            INSERT INTO builds (timestamp, status, git_commit, git_branch, git_dirty)
-            VALUES (?, 'running', ?, ?, ?)
+            INSERT INTO builds (
+                timestamp, status, git_commit, git_branch, git_dirty,
+                parameters, experiment_id, trial_number
+            )
+            VALUES (?, 'running', ?, ?, ?, ?, ?, ?)
             """,
             (
                 now,
                 git.commit if git else None,
                 git.branch if git else None,
                 int(git.dirty) if git and git.dirty is not None else None,
+                json.dumps(parameters or {}),
+                experiment_id,
+                trial_number,
             ),
         )
         self.conn.commit()
@@ -241,13 +294,152 @@ class StateDatabase:
         rows = self.conn.execute(
             "SELECT * FROM builds ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._normalize_build_row(row) for row in rows]
 
     def get_build(self, build_id: int) -> dict[str, Any] | None:
         row = self.conn.execute(
             "SELECT * FROM builds WHERE id = ?", (build_id,)
         ).fetchone()
+        return self._normalize_build_row(row) if row else None
+
+    def get_latest_build_id(self) -> int | None:
+        row = self.conn.execute(
+            "SELECT id FROM builds WHERE status = 'success' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return row["id"] if row else None
+
+    def get_previous_build_id(self, before_id: int | None = None) -> int | None:
+        if before_id is None:
+            row = self.conn.execute(
+                """
+                SELECT id FROM builds WHERE status = 'success'
+                ORDER BY id DESC LIMIT 1 OFFSET 1
+                """
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                """
+                SELECT id FROM builds
+                WHERE status = 'success' AND id < ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (before_id,),
+            ).fetchone()
+        return row["id"] if row else None
+
+    def create_experiment(
+        self,
+        name: str,
+        *,
+        strategy: str,
+        objective_metric: str,
+        objective_direction: str,
+        config: dict[str, Any],
+    ) -> int:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = self.conn.execute(
+            """
+            INSERT INTO experiments (
+                name, created_at, status, strategy,
+                objective_metric, objective_direction, config
+            )
+            VALUES (?, ?, 'running', ?, ?, ?, ?)
+            """,
+            (
+                name,
+                now,
+                strategy,
+                objective_metric,
+                objective_direction,
+                json.dumps(config),
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    def finish_experiment(
+        self,
+        experiment_id: int,
+        *,
+        status: str,
+        best_build_id: int | None = None,
+        best_value: float | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE experiments SET status = ?, best_build_id = ?, best_value = ?
+            WHERE id = ?
+            """,
+            (status, best_build_id, best_value, experiment_id),
+        )
+        self.conn.commit()
+
+    def save_trial(
+        self,
+        experiment_id: int,
+        trial_number: int,
+        *,
+        build_id: int | None,
+        parameters: dict[str, Any],
+        metrics: dict[str, Any],
+        objective_value: float | None,
+        status: str,
+    ) -> int:
+        cursor = self.conn.execute(
+            """
+            INSERT INTO experiment_trials (
+                experiment_id, trial_number, build_id, parameters,
+                metrics, objective_value, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                experiment_id,
+                trial_number,
+                build_id,
+                json.dumps(parameters),
+                json.dumps(metrics),
+                objective_value,
+                status,
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    def get_experiments(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT * FROM experiments ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_experiment(self, experiment_id: int) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM experiments WHERE id = ?", (experiment_id,)
+        ).fetchone()
         return dict(row) if row else None
+
+    def get_experiment_trials(self, experiment_id: int) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM experiment_trials
+            WHERE experiment_id = ?
+            ORDER BY trial_number
+            """,
+            (experiment_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _normalize_build_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        for list_key in ("changed_artifacts", "rebuilt", "reused", "failed"):
+            val = data.get(list_key)
+            if isinstance(val, str):
+                data[list_key] = json.loads(val or "[]")
+        for dict_key in ("metrics", "parameters"):
+            val = data.get(dict_key)
+            if isinstance(val, str):
+                data[dict_key] = json.loads(val or "{}")
+        return data
 
     def log_execution(
         self,

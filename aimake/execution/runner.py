@@ -72,6 +72,7 @@ class BuildRunner:
         self._fingerprints: dict[str, str] = {}
         self._statuses: dict[str, ArtifactStatus] = {}
         self._build_id: int | None = None
+        self._build_parameters: dict[str, Any] = {}
         self._log_path: Path | None = None
         self._log_lines: list[str] = []
 
@@ -244,6 +245,9 @@ class BuildRunner:
         *,
         force: set[str] | None = None,
         dry_run: bool = False,
+        build_parameters: dict[str, Any] | None = None,
+        experiment_id: int | None = None,
+        trial_number: int | None = None,
     ) -> BuildResult:
         """Execute incremental build."""
         import time
@@ -251,6 +255,7 @@ class BuildRunner:
         from aimake.git.integration import get_git_info
 
         start_time = time.monotonic()
+        self._build_parameters = dict(build_parameters or {})
 
         # Expand force to include all downstream dependents
         if force:
@@ -292,7 +297,12 @@ class BuildRunner:
         import threading
 
         git_info = get_git_info(self.project_root)
-        self._build_id = self.db.start_build(git_info)
+        self._build_id = self.db.start_build(
+            git_info,
+            parameters=self._build_parameters or None,
+            experiment_id=experiment_id,
+            trial_number=trial_number,
+        )
         self._setup_log()
 
         rebuilt: list[str] = []
@@ -330,6 +340,7 @@ class BuildRunner:
                     worker_cfg = None
                     gpu_needed = node.config.resources.gpu
                     extra_env: dict[str, str] = {}
+                    extra_env.update(self._parameter_env(node))
 
                     try:
                         if gpu_needed > 0:
@@ -496,6 +507,13 @@ class BuildRunner:
             git_branch=git_info.branch if git_info.available else None,
             git_dirty=git_info.dirty if git_info.available else None,
         )
+
+    def _parameter_env(self, node) -> dict[str, str]:
+        """Expose artifact and trial parameters as AIMAKE_PARAM_* env vars."""
+        merged: dict[str, Any] = {}
+        merged.update(node.config.parameters)
+        merged.update(self._build_parameters)
+        return {f"AIMAKE_PARAM_{key.upper()}": str(value) for key, value in merged.items()}
 
     def _build_metadata(self, node) -> dict[str, Any]:
         """Merge user metadata with captured snapshot for rich diffs."""

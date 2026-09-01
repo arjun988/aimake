@@ -44,6 +44,9 @@ jobs:
           aimake workers
           aimake cache status
           aimake doctor
+          aimake compare || true
+          aimake optimize --dry-run || true
+          aimake experiments list
 
       - name: Verify cache config schema
         run: python -c "from aimake.config.schema import RemoteCacheConfig, S3CacheConfig; RemoteCacheConfig(type='s3', s3=S3CacheConfig(bucket='b'))"

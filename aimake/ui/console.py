@@ -324,3 +324,133 @@ def print_workers_status(status: dict) -> None:
             )
     else:
         rich_console.print("\n[dim]Distributed workers disabled[/dim]")
+
+
+def print_compare(result) -> None:
+    """Print build comparison table."""
+    rich_console.print(
+        f"\n[bold]BUILD COMPARISON[/bold]  "
+        f"#{result.baseline_id} → #{result.candidate_id}\n"
+    )
+    rich_console.print(f"[dim]{result.summary}[/dim]\n")
+
+    if result.parameter_changes:
+        rich_console.print("[bold]Parameters[/bold]")
+        for name, (old, new) in result.parameter_changes.items():
+            rich_console.print(f"  {name}: {old} → {new}")
+        rich_console.print()
+
+    if result.metric_deltas:
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Metric")
+        table.add_column("Baseline")
+        table.add_column("Candidate")
+        table.add_column("Delta")
+        table.add_column("Trend")
+
+        for delta in result.metric_deltas:
+            trend = ""
+            if delta.improved is True:
+                trend = "[green]better[/green]"
+            elif delta.improved is False:
+                trend = "[red]worse[/red]"
+            table.add_row(
+                delta.name,
+                _fmt_num(delta.baseline),
+                _fmt_num(delta.candidate),
+                _fmt_delta(delta.delta),
+                trend,
+            )
+        rich_console.print(table)
+
+    if result.baseline_git_commit or result.candidate_git_commit:
+        rich_console.print(
+            f"\nGit: {result.baseline_git_commit or '?'} → {result.candidate_git_commit or '?'}"
+        )
+
+
+def print_optimization_result(result) -> None:
+    """Print optimization summary."""
+    rich_console.print(f"\n[bold]OPTIMIZATION[/bold]  experiment #{result.experiment_id}\n")
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Trial")
+    table.add_column("Parameters")
+    table.add_column("Objective")
+    table.add_column("Build")
+    table.add_column("Status")
+
+    for trial in result.trials:
+        params = ", ".join(f"{k}={v}" for k, v in trial.parameters.items())
+        table.add_row(
+            str(trial.trial_number),
+            params or "-",
+            _fmt_num(trial.objective_value),
+            f"#{trial.build_id}" if trial.build_id else "-",
+            "ok" if trial.success else "failed",
+        )
+    rich_console.print(table)
+
+    if result.best_trial:
+        rich_console.print(
+            f"\n[green]Best trial #{result.best_trial.trial_number}[/green]: "
+            f"objective={_fmt_num(result.best_value)} "
+            f"build=#{result.best_build_id}"
+        )
+        if result.best_parameters:
+            params = ", ".join(f"{k}={v}" for k, v in result.best_parameters.items())
+            rich_console.print(f"Parameters: {params}")
+    elif result.pareto_front:
+        rich_console.print(f"\n[green]Pareto front: {len(result.pareto_front)} trial(s)[/green]")
+        for trial in result.pareto_front:
+            objs = ", ".join(
+                f"{k}={_fmt_num(v)}" for k, v in trial.objective_values.items()
+            )
+            rich_console.print(f"  Trial #{trial.trial_number}: {objs}")
+    else:
+        rich_console.print_warning("No successful trials with objective values")
+
+    if result.stopped_early:
+        rich_console.print_info("Stopped early (no improvement within patience window)")
+    if result.mlflow_run_id:
+        rich_console.print_info(f"MLflow run: {result.mlflow_run_id}")
+
+
+def print_experiments(experiments: list[dict]) -> None:
+    """Print experiment list."""
+    if not experiments:
+        rich_console.print_info("No experiments yet. Run 'aimake optimize'.")
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("ID")
+    table.add_column("Name")
+    table.add_column("Objective")
+    table.add_column("Best")
+    table.add_column("Status")
+
+    for exp in experiments:
+        objective = f"{exp.get('objective_metric')} ({exp.get('objective_direction')})"
+        table.add_row(
+            str(exp["id"]),
+            exp.get("name", ""),
+            objective,
+            _fmt_num(exp.get("best_value")),
+            str(exp.get("status", "")),
+        )
+    rich_console.print(table)
+
+
+def _fmt_num(value) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    return str(value)
+
+
+def _fmt_delta(value) -> str:
+    if value is None:
+        return "-"
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value:.4g}"

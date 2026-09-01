@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `aimake diff` command with `--baseline stored|lock|current`
 - Artifact snapshots captured on every successful build
 - Hardening test suite: force rebuild, targeted builds, corrupted cache, missing outputs, diff integration
+- Experiment comparison (`aimake compare`) across build history
+- Automatic hyperparameter optimization (`aimake optimize`) with grid/random search
+- `aimake experiments list|show` for optimization run history
+- `optimization` block in `aimake.yaml` (search_space, objective, parameter_artifact)
+- Trial parameters injected as `AIMAKE_PARAM_*` environment variables during builds
+- SQLite `experiments` and `experiment_trials` tables; build parameters stored per build
+- Bayesian/Optuna search (`strategy: bayesian` / `optuna`, requires `aimake[optuna]`)
+- Multi-objective Pareto optimization (`objective.metrics` + `directions`)
+- Early stopping (`optimization.early_stopping`: patience, min_trials, min_delta)
+- MLflow export (`optimization.mlflow`, requires `aimake[mlflow]`)
 
 ### Changed
 - `Fingerprinter` uses persistent file-hash cache when `.aimake/state.db` is available
