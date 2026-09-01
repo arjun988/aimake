@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from aimake.config.schema import ArtifactConfig
-from aimake.hashing.files import hash_file, hash_string
+from aimake.hashing.files import hash_file
 
 
 @dataclass
@@ -49,14 +49,26 @@ class DiffEngine:
         current_fingerprint: str | None,
         baseline_fingerprint: str | None,
         baseline_label: str = "stored",
+        baseline_snapshot: dict[str, Any] | None = None,
     ) -> DiffResult:
         if config.type == "prompt":
-            return self._diff_prompt(name, config, current_fingerprint, baseline_fingerprint, baseline_label)
+            return self._diff_prompt(
+                name, config, current_fingerprint, baseline_fingerprint,
+                baseline_label, baseline_snapshot,
+            )
         if config.type == "dataset":
-            return self._diff_dataset(name, config, current_fingerprint, baseline_fingerprint, baseline_label)
+            return self._diff_dataset(
+                name, config, current_fingerprint, baseline_fingerprint,
+                baseline_label, baseline_snapshot,
+            )
         if config.type == "model":
-            return self._diff_model(name, config, current_fingerprint, baseline_fingerprint, baseline_label)
-        return self._diff_generic(name, config, current_fingerprint, baseline_fingerprint, baseline_label)
+            return self._diff_model(
+                name, config, current_fingerprint, baseline_fingerprint,
+                baseline_label, baseline_snapshot,
+            )
+        return self._diff_generic(
+            name, config, current_fingerprint, baseline_fingerprint, baseline_label
+        )
 
     def _diff_prompt(
         self,
@@ -65,6 +77,7 @@ class DiffEngine:
         current_fp: str | None,
         baseline_fp: str | None,
         baseline_label: str,
+        baseline_snapshot: dict[str, Any] | None,
     ) -> DiffResult:
         result = DiffResult(artifact=name, artifact_type="prompt", baseline=baseline_label)
         if not config.source:
@@ -77,6 +90,7 @@ class DiffEngine:
             return result
 
         current_text = path.read_text(encoding="utf-8")
+        old_text = (baseline_snapshot or {}).get("prompt_text", "")
         changes: list[DiffChange] = []
 
         if current_fp != baseline_fp:
@@ -88,20 +102,29 @@ class DiffEngine:
                 description="Prompt fingerprint changed",
             ))
 
-        if baseline_fp and current_fp and baseline_fp != current_fp:
-            old_text = current_text  # without snapshot store, show content stats
+        if old_text and old_text != current_text:
+            result.has_changes = True
+            old_lines = old_text.count("\n") + 1
+            new_lines = current_text.count("\n") + 1
             changes.append(DiffChange(
                 field="content",
-                old_value=f"{len(old_text)} chars",
-                new_value=f"{len(current_text)} chars, {current_text.count(chr(10))+1} lines",
-                description="Prompt content changed",
+                old_value=f"{len(old_text)} chars, {old_lines} lines",
+                new_value=f"{len(current_text)} chars, {new_lines} lines",
+                description="Prompt text changed",
             ))
             result.unified_diff = self._text_diff(
                 f"{name} ({baseline_label})",
                 f"{name} (current)",
-                "",  # no historical text without snapshot
+                old_text,
                 current_text,
             )
+        elif current_fp != baseline_fp and not old_text:
+            result.has_changes = True
+            changes.append(DiffChange(
+                field="content",
+                new_value=f"{len(current_text)} chars",
+                description="Prompt changed (no stored snapshot — rebuild to capture diffs)",
+            ))
 
         result.changes = changes
         result.summary = (
@@ -118,6 +141,7 @@ class DiffEngine:
         current_fp: str | None,
         baseline_fp: str | None,
         baseline_label: str,
+        baseline_snapshot: dict[str, Any] | None,
     ) -> DiffResult:
         result = DiffResult(artifact=name, artifact_type="dataset", baseline=baseline_label)
         if not config.source:
@@ -139,26 +163,51 @@ class DiffEngine:
                 description="Dataset fingerprint changed",
             ))
 
-        stats = self._dataset_stats(path)
+        current_stats = self._dataset_stats_dict(path)
+        old_stats = baseline_snapshot or {}
+
+        if old_stats:
+            for key in ("row_count", "size_bytes", "file_hash", "file_count"):
+                old_val = old_stats.get(key)
+                new_val = current_stats.get(key)
+                if old_val is not None and new_val is not None and old_val != new_val:
+                    changes.append(DiffChange(
+                        field=key,
+                        old_value=old_val,
+                        new_value=new_val,
+                        description=f"Dataset {key} changed",
+                    ))
+
+            old_sample = old_stats.get("sample_rows", [])
+            new_sample = current_stats.get("sample_rows", [])
+            if old_sample != new_sample:
+                changes.append(DiffChange(
+                    field="sample_rows",
+                    old_value=old_sample[:3],
+                    new_value=new_sample[:3],
+                    description="Sample rows changed",
+                ))
+                if old_sample and new_sample:
+                    result.unified_diff = self._text_diff(
+                        "sample (baseline)",
+                        "sample (current)",
+                        "\n".join(old_sample[:10]),
+                        "\n".join(new_sample[:10]),
+                    )
+
         changes.append(DiffChange(
             field="stats",
-            new_value=stats,
-            description="Current dataset statistics",
+            old_value=self._format_stats(old_stats) if old_stats else None,
+            new_value=self._format_stats(current_stats),
+            description="Dataset statistics",
         ))
 
-        if path.is_file() and path.suffix == ".jsonl":
-            sample = self._jsonl_sample(path, 3)
-            changes.append(DiffChange(
-                field="sample",
-                new_value=sample,
-                description="Sample rows (first 3)",
-            ))
-
         result.changes = changes
+        stats_str = self._format_stats(current_stats)
         result.summary = (
-            f"Dataset changed: {stats}"
+            f"Dataset changed: {stats_str}"
             if result.has_changes
-            else f"Dataset unchanged: {stats}"
+            else f"Dataset unchanged: {stats_str}"
         )
         return result
 
@@ -169,9 +218,11 @@ class DiffEngine:
         current_fp: str | None,
         baseline_fp: str | None,
         baseline_label: str,
+        baseline_snapshot: dict[str, Any] | None,
     ) -> DiffResult:
         result = DiffResult(artifact=name, artifact_type="model", baseline=baseline_label)
         changes: list[DiffChange] = []
+        old_snap = baseline_snapshot or {}
 
         if current_fp != baseline_fp:
             result.has_changes = True
@@ -182,31 +233,46 @@ class DiffEngine:
                 description="Model fingerprint changed",
             ))
 
-        if config.parameters:
+        old_params = old_snap.get("parameters", {})
+        new_params = dict(config.parameters)
+        if old_params != new_params:
+            result.has_changes = True
+            added = {k: v for k, v in new_params.items() if k not in old_params}
+            removed = {k: v for k, v in old_params.items() if k not in new_params}
+            changed = {
+                k: (old_params[k], new_params[k])
+                for k in new_params
+                if k in old_params and old_params[k] != new_params[k]
+            }
             changes.append(DiffChange(
                 field="parameters",
-                new_value=config.parameters,
-                description="Model parameters",
+                old_value=old_params or None,
+                new_value=new_params or None,
+                description="Model parameters changed",
             ))
+            if added or removed or changed:
+                diff_lines = []
+                for k, v in sorted(added.items()):
+                    diff_lines.append(f"+ {k}: {v}")
+                for k, v in sorted(removed.items()):
+                    diff_lines.append(f"- {k}: {v}")
+                for k, (o, n) in sorted(changed.items()):
+                    diff_lines.append(f"~ {k}: {o} -> {n}")
+                result.unified_diff = "\n".join(diff_lines)
 
         if config.source:
             path = self.project_root / config.source
             if path.is_file():
-                if path.suffix == ".json":
-                    try:
-                        model_cfg = json.loads(path.read_text(encoding="utf-8"))
-                        changes.append(DiffChange(
-                            field="model_config",
-                            new_value=model_cfg,
-                            description=f"Model config from {config.source}",
-                        ))
-                    except json.JSONDecodeError:
-                        pass
-                changes.append(DiffChange(
-                    field="source_hash",
-                    new_value=hash_file(path),
-                    description=f"Hash of {config.source}",
-                ))
+                new_hash = hash_file(path)
+                old_hash = old_snap.get("source_hash")
+                if old_hash and old_hash != new_hash:
+                    result.has_changes = True
+                    changes.append(DiffChange(
+                        field="source_hash",
+                        old_value=old_hash,
+                        new_value=new_hash,
+                        description=f"Model source '{config.source}' changed",
+                    ))
 
         result.changes = changes
         result.summary = (
@@ -238,31 +304,38 @@ class DiffEngine:
             result.summary = f"{name} unchanged since {baseline_label}."
         return result
 
-    @staticmethod
-    def _dataset_stats(path: Path) -> str:
+    def _dataset_stats_dict(self, path: Path) -> dict[str, Any]:
         if path.is_file():
-            size = path.stat().st_size
-            rows = 0
+            stats: dict[str, Any] = {
+                "size_bytes": path.stat().st_size,
+                "file_hash": hash_file(path),
+            }
             if path.suffix == ".jsonl":
                 with open(path, encoding="utf-8") as f:
-                    rows = sum(1 for line in f if line.strip())
-            return f"{path.name}: {size} bytes, {rows} rows"
+                    lines = [line.strip() for line in f if line.strip()]
+                stats["row_count"] = len(lines)
+                stats["sample_rows"] = lines[:5]
+            return stats
         if path.is_dir():
-            files = list(path.rglob("*"))
-            total = sum(f.stat().st_size for f in files if f.is_file())
-            return f"{path.name}/: {len(files)} files, {total} bytes"
-        return "unknown"
+            files = sorted(p for p in path.rglob("*") if p.is_file())
+            return {
+                "file_count": len(files),
+                "size_bytes": sum(f.stat().st_size for f in files),
+            }
+        return {}
 
     @staticmethod
-    def _jsonl_sample(path: Path, n: int = 3) -> list[str]:
-        samples = []
-        with open(path, encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if i >= n:
-                    break
-                if line.strip():
-                    samples.append(line.strip()[:120])
-        return samples
+    def _format_stats(stats: dict[str, Any]) -> str:
+        if not stats:
+            return "unknown"
+        parts = []
+        if "row_count" in stats:
+            parts.append(f"{stats['row_count']} rows")
+        if "size_bytes" in stats:
+            parts.append(f"{stats['size_bytes']} bytes")
+        if "file_count" in stats:
+            parts.append(f"{stats['file_count']} files")
+        return ", ".join(parts) if parts else str(stats)
 
     @staticmethod
     def _text_diff(label_a: str, label_b: str, text_a: str, text_b: str) -> str:
@@ -273,13 +346,3 @@ class DiffEngine:
             tofile=label_b,
         )
         return "".join(diff)
-
-    def diff_prompt_text(self, config: ArtifactConfig, old_text: str) -> str:
-        """Generate unified diff for prompt text."""
-        if not config.source:
-            return ""
-        path = self.project_root / config.source
-        if not path.is_file():
-            return ""
-        current = path.read_text(encoding="utf-8")
-        return self._text_diff("previous", "current", old_text, current)

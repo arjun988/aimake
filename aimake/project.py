@@ -30,6 +30,7 @@ from aimake.lock import generate_lock, read_lock, write_lock
 from aimake.metrics.quality import QualityGateChecker
 from aimake.models import ArtifactStatus, BuildPlan, BuildResult, ExplainResult
 from aimake.diff.engine import DiffEngine
+from aimake.diff.snapshots import extract_snapshot
 from aimake.scheduling.resources import GPUDetector
 
 
@@ -230,7 +231,6 @@ class Project:
 
     def diff(self, artifact: str, *, baseline: str = "stored") -> "DiffResult":
         """Diff an artifact against a baseline (stored, lock, or current)."""
-        from aimake.diff.engine import DiffResult
 
         if artifact not in self.graph:
             raise ValueError(f"Unknown artifact: '{artifact}'")
@@ -241,9 +241,11 @@ class Project:
         baseline_fp: str | None = None
         baseline_label = baseline
 
+        baseline_snapshot: dict | None = None
         if baseline == "stored":
             state = self.cache.get_artifact_state(artifact)
             baseline_fp = state.fingerprint if state else None
+            baseline_snapshot = extract_snapshot(state.metadata if state else None)
         elif baseline == "lock":
             lock = read_lock(self.project_root)
             if lock and "artifacts" in lock:
@@ -260,6 +262,7 @@ class Project:
             current_fingerprint=current_fp,
             baseline_fingerprint=baseline_fp,
             baseline_label=baseline_label,
+            baseline_snapshot=baseline_snapshot,
         )
 
     def cache_push(self, fingerprint: str | None = None) -> list[str]:

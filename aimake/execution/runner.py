@@ -13,6 +13,8 @@ from aimake.execution.process import ExecutionError, ProcessRunner
 from aimake.execution.scheduler import BuildScheduler, ScheduleResult
 from aimake.graph.dag import Graph
 from aimake.graph.planner import Planner
+from aimake.diff.snapshots import capture_snapshot, extract_snapshot, merge_metadata_with_snapshot
+from aimake.hashing.file_cache import FileHashCache
 from aimake.hashing.fingerprint import Fingerprinter
 from aimake.metrics.parser import MetricsParser
 from aimake.models import (
@@ -51,9 +53,10 @@ class BuildRunner:
 
         self.resource_pool = ResourcePool(config.project.gpus)
         self.worker_pool = WorkerPool(config.workers)
+        self.file_cache = FileHashCache(cache.state_db)
 
         self.fingerprinter = Fingerprinter(
-            project_root, config, graph, debug=debug
+            project_root, config, graph, debug=debug, file_cache=self.file_cache
         )
         self.planner = Planner(graph)
         self.process = ProcessRunner(project_root, debug=debug)
@@ -72,21 +75,38 @@ class BuildRunner:
         self._log_path: Path | None = None
         self._log_lines: list[str] = []
 
-    def compute_fingerprints(self) -> dict[str, str]:
-        self._fingerprints = self.fingerprinter.fingerprint_all()
+    def compute_fingerprints(self, *, targets: list[str] | None = None) -> dict[str, str]:
+        if targets:
+            graph = self.graph.subgraph_for_targets(targets)
+            fingerprinter = Fingerprinter(
+                self.project_root,
+                self.config,
+                graph,
+                debug=self.debug,
+                file_cache=self.file_cache,
+            )
+            self._fingerprints = fingerprinter.fingerprint_all()
+        else:
+            self._fingerprints = self.fingerprinter.fingerprint_all()
         return self._fingerprints
 
     def compute_statuses(
         self,
         *,
         force: set[str] | None = None,
+        targets: list[str] | None = None,
     ) -> dict[str, ArtifactStatus]:
+        if not self._fingerprints:
+            self.compute_fingerprints(targets=targets)
+        graph = self.graph
+        if targets:
+            graph = self.graph.subgraph_for_targets(targets)
         stored = self.cache.get_stored_fingerprints()
-        outputs_exist = self._check_outputs_exist()
+        outputs_exist = self._check_outputs_exist(graph)
         self._statuses = self.planner.compute_statuses(
             self._fingerprints,
             stored,
-            self.graph,
+            graph,
             outputs_exist=outputs_exist,
             force=force,
         )
@@ -96,12 +116,18 @@ class BuildRunner:
         self,
         *,
         force: set[str] | None = None,
+        targets: list[str] | None = None,
     ) -> BuildPlan:
-        if not self._fingerprints:
-            self.compute_fingerprints()
-        if not self._statuses:
-            self.compute_statuses(force=force)
-        return self.planner.plan(self._statuses, force=force)
+        graph = self.graph
+        planner = self.planner
+        if targets:
+            graph = self.graph.subgraph_for_targets(targets)
+            planner = Planner(graph)
+        if not self._fingerprints or targets:
+            self.compute_fingerprints(targets=targets)
+        if not self._statuses or targets:
+            self.compute_statuses(force=force, targets=targets)
+        return planner.plan(self._statuses, force=force)
 
     def explain(self, target: str) -> ExplainResult:
         if target not in self.graph:
@@ -240,7 +266,7 @@ class BuildRunner:
             graph = self.graph.subgraph_for_targets(targets)
 
         self.fingerprinter = Fingerprinter(
-            self.project_root, self.config, graph, debug=self.debug
+            self.project_root, self.config, graph, debug=self.debug, file_cache=self.file_cache
         )
         self.planner = Planner(graph)
         self.scheduler = BuildScheduler(
@@ -389,7 +415,7 @@ class BuildRunner:
                         command=node.config.command,
                         outputs=node.config.outputs,
                         duration=record.duration,
-                        metadata=node.config.metadata,
+                        metadata=self._build_metadata(node),
                         metrics=metrics,
                     )
                 else:
@@ -471,6 +497,11 @@ class BuildRunner:
             git_dirty=git_info.dirty if git_info.available else None,
         )
 
+    def _build_metadata(self, node) -> dict[str, Any]:
+        """Merge user metadata with captured snapshot for rich diffs."""
+        snapshot = capture_snapshot(node.name, node.config, self.project_root)
+        return merge_metadata_with_snapshot(node.config.metadata, snapshot)
+
     def _handle_passive(self, node, fingerprint: str) -> None:
         """Handle passive artifacts (source-only, no command)."""
         self.cache.store(
@@ -478,7 +509,7 @@ class BuildRunner:
             fingerprint,
             artifact_type=node.config.type,
             outputs=[node.config.source] if node.config.source else [],
-            metadata=node.config.metadata,
+            metadata=self._build_metadata(node),
         )
 
     def _parse_metrics(self, node) -> dict[str, Any]:
@@ -486,9 +517,10 @@ class BuildRunner:
             return self.metrics_parser.parse_file(node.config.metrics.file)
         return {}
 
-    def _check_outputs_exist(self) -> dict[str, bool]:
+    def _check_outputs_exist(self, graph: Graph | None = None) -> dict[str, bool]:
+        graph = graph or self.graph
         result = {}
-        for node in self.graph:
+        for node in graph:
             if node.config.outputs:
                 missing = self.process.validate_outputs(
                     node.config.outputs, self.project_root

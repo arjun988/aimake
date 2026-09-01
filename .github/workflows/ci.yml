@@ -21,16 +21,29 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install aimake
-        run: pip install -e ".[dev]"
+      - name: Install aimake with all extras
+        run: pip install -e ".[all]"
 
-      - name: Run tests
-        run: pytest tests/ -v
+      - name: Run full test suite
+        run: pytest tests/ -v --tb=short
 
-      - name: Test example RAG project
+      - name: Test example RAG incremental build
         working-directory: examples/rag
         run: |
           aimake build
           aimake build
+          test "$(aimake plan 2>&1 | grep -c 'cached')" -ge 5
+          echo "modified prompt" >> prompts/system.txt
           aimake plan
+          aimake diff prompt --baseline stored || true
           aimake status
+
+      - name: Test new CLI commands
+        working-directory: examples/rag
+        run: |
+          aimake workers
+          aimake cache status
+          aimake doctor
+
+      - name: Verify cache config schema
+        run: python -c "from aimake.config.schema import RemoteCacheConfig, S3CacheConfig; RemoteCacheConfig(type='s3', s3=S3CacheConfig(bucket='b'))"

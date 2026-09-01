@@ -14,6 +14,7 @@ from aimake.config.schema import AimakeConfig, ArtifactConfig
 from aimake.constants import HASH_PREFIX, SECRET_REDACTED
 from aimake.graph.dag import Graph
 from aimake.hashing.directories import expand_glob, hash_directory, hash_inputs
+from aimake.hashing.file_cache import FileHashCache
 from aimake.hashing.files import hash_file, hash_string
 
 
@@ -27,11 +28,13 @@ class Fingerprinter:
         graph: Graph,
         *,
         debug: bool = False,
+        file_cache: FileHashCache | None = None,
     ) -> None:
         self.project_root = project_root
         self.config = config
         self.graph = graph
         self.debug = debug
+        self.file_cache = file_cache
         self._file_hash_cache: dict[str, str] = {}
         self._computed: dict[str, str] = {}
 
@@ -119,11 +122,14 @@ class Fingerprinter:
 
     def _cached_file_hash(self, path: Path) -> str:
         key = str(path.resolve())
-        if key not in self._file_hash_cache:
-            if path.is_file():
-                self._file_hash_cache[key] = hash_file(path)
-            else:
-                self._file_hash_cache[key] = hash_string("missing")
+        if key in self._file_hash_cache:
+            return self._file_hash_cache[key]
+        if self.file_cache is not None:
+            self._file_hash_cache[key] = self.file_cache.hash_file(path)
+        elif path.is_file():
+            self._file_hash_cache[key] = hash_file(path)
+        else:
+            self._file_hash_cache[key] = hash_string("missing")
         return self._file_hash_cache[key]
 
     def _type_specific_hash(self, name: str, artifact: ArtifactConfig) -> str:

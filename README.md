@@ -490,9 +490,11 @@ project.close()
 ```bash
 git clone https://github.com/aimake/aimake
 cd aimake
-pip install -e ".[dev]"
+pip install -e ".[all]"
 pytest tests/ -v
 ```
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 
