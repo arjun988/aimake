@@ -16,14 +16,28 @@ pip install aimake
 
 Traditional build tools understand `source → object → binary`. AI pipelines are different:
 
-```mermaid
-graph TD
-    dataset --> preprocess
-    preprocess --> embeddings
-    embeddings --> index
-    index --> evaluation
-    prompt --> evaluation
-    evaluation --> report
+```text
+dataset
+   │
+   ▼
+preprocess
+   │
+   ▼
+embeddings
+   │
+   ▼
+index ─────────────┐
+                   │
+prompt ────────────┼──► evaluation
+                             │
+                             ▼
+                           report
+```
+
+Or visualize your project live:
+
+```bash
+aimake graph
 ```
 
 When only a prompt changes, everything upstream should be **skipped**. That is the core value of `aimake`.
