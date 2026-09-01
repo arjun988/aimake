@@ -248,10 +248,52 @@ class HuggingFacePluginConfig(BaseModel):
     auto_push: bool = False
 
 
+class WandbPluginConfig(BaseModel):
+    """Weights & Biases experiment tracking plugin."""
+
+    enabled: bool = False
+    entity: str | None = None
+    project: str | None = None
+    api_key_env: str = "WANDB_API_KEY"
+    auto_log_metrics: bool = True
+    auto_log_artifacts: bool = False
+
+
+class DvcPluginConfig(BaseModel):
+    """DVC data versioning plugin."""
+
+    enabled: bool = False
+    remote: str | None = None
+    auto_pull: bool = True
+    auto_push: bool = False
+
+
+class DockerPluginConfig(BaseModel):
+    """Docker container execution plugin."""
+
+    enabled: bool = False
+    default_image: str | None = None
+    auto_build: bool = True
+    network: str | None = None
+    gpu: bool = False
+
+
+class OllamaPluginConfig(BaseModel):
+    """Ollama local LLM plugin."""
+
+    enabled: bool = False
+    host: str = "http://localhost:11434"
+    auto_pull: bool = True
+
+
 class PluginsConfig(BaseModel):
     """Third-party plugin configuration."""
 
     huggingface: HuggingFacePluginConfig | None = None
+    wandb: WandbPluginConfig | None = None
+    dvc: DvcPluginConfig | None = None
+    docker: DockerPluginConfig | None = None
+    ollama: OllamaPluginConfig | None = None
 
 
 class RegistryConfig(BaseModel):

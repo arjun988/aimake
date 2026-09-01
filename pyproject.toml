@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aimake"
-version = "1.0.0"
+version = "1.1.0"
 description = "An incremental build system for AI applications"
 readme = "README.md"
 license = "Apache-2.0"
@@ -40,11 +40,26 @@ s3 = [
 huggingface = [
     "huggingface_hub>=0.23",
 ]
+wandb = [
+    "wandb>=0.16",
+]
+dvc = [
+    "dvc>=3.0",
+]
+docker = []
+ollama = []
+plugins = [
+    "wandb>=0.16",
+    "dvc>=3.0",
+    "huggingface_hub>=0.23",
+]
 all = [
     "boto3>=1.34",
     "optuna>=3.5",
     "mlflow>=2.9",
     "huggingface_hub>=0.23",
+    "wandb>=0.16",
+    "dvc>=3.0",
     "pytest>=8.0",
     "pytest-cov>=4.1",
 ]

@@ -510,5 +510,121 @@ class Project:
             )
         return plugin
 
+    def wandb_sync(self, artifact: str) -> None:
+        """Manually log an artifact to Weights & Biases."""
+        plugin = self._require_wandb_plugin()
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+        node = self.graph.get(artifact)
+        state = self.cache.get_artifact_state(artifact)
+        context = {
+            "artifact_config": node.config,
+            "artifact": artifact,
+            "success": True,
+            "metrics": (state.metrics if state else {}) or {},
+            "outputs": list(node.config.outputs),
+            "fingerprint": state.fingerprint if state else "",
+            "duration": state.duration if state else None,
+            "build_id": None,
+        }
+        plugin.sync(node.config, artifact_name=artifact, context=context)
+
+    def wandb_status(self, artifact: str | None = None) -> dict[str, Any]:
+        plugin = self._require_wandb_plugin()
+        return self._plugin_status(plugin, artifact)
+
+    def dvc_pull(self, artifact: str) -> str:
+        plugin = self._require_dvc_plugin()
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+        return plugin.pull(self.graph.get(artifact).config, artifact_name=artifact)
+
+    def dvc_push(self, artifact: str) -> str:
+        plugin = self._require_dvc_plugin()
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+        return plugin.push(self.graph.get(artifact).config, artifact_name=artifact)
+
+    def dvc_status(self, artifact: str | None = None) -> dict[str, Any]:
+        plugin = self._require_dvc_plugin()
+        return self._plugin_status(plugin, artifact)
+
+    def docker_build(self, artifact: str) -> str:
+        plugin = self._require_docker_plugin()
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+        return plugin.build_image(self.graph.get(artifact).config, artifact_name=artifact)
+
+    def docker_status(self, artifact: str | None = None) -> dict[str, Any]:
+        plugin = self._require_docker_plugin()
+        return self._plugin_status(plugin, artifact)
+
+    def ollama_pull(self, artifact: str) -> str:
+        plugin = self._require_ollama_plugin()
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+        return plugin.pull(self.graph.get(artifact).config, artifact_name=artifact)
+
+    def ollama_status(self, artifact: str | None = None) -> dict[str, Any]:
+        plugin = self._require_ollama_plugin()
+        return self._plugin_status(plugin, artifact)
+
+    def _plugin_status(self, plugin, artifact: str | None) -> dict[str, Any]:
+        if artifact:
+            if artifact not in self.graph:
+                raise ValueError(f"Unknown artifact: '{artifact}'")
+            return {artifact: plugin.status(self.graph.get(artifact).config)}
+        result: dict[str, Any] = {}
+        for node in self.graph:
+            status = plugin.status(node.config)
+            if status.get("linked"):
+                result[node.name] = status
+        return result
+
+    def _require_wandb_plugin(self):
+        from aimake.plugins.wandb_plugin import WandbPlugin
+
+        plugin = self.plugin_manager.get("wandb")
+        if plugin is None or not isinstance(plugin, WandbPlugin):
+            raise ValueError(
+                "Weights & Biases plugin is not enabled. "
+                "Add 'plugins.wandb.enabled: true' to aimake.yaml "
+                "and install aimake[wandb]."
+            )
+        return plugin
+
+    def _require_dvc_plugin(self):
+        from aimake.plugins.dvc import DvcPlugin
+
+        plugin = self.plugin_manager.get("dvc")
+        if plugin is None or not isinstance(plugin, DvcPlugin):
+            raise ValueError(
+                "DVC plugin is not enabled. "
+                "Add 'plugins.dvc.enabled: true' to aimake.yaml."
+            )
+        return plugin
+
+    def _require_docker_plugin(self):
+        from aimake.plugins.docker_plugin import DockerPlugin
+
+        plugin = self.plugin_manager.get("docker")
+        if plugin is None or not isinstance(plugin, DockerPlugin):
+            raise ValueError(
+                "Docker plugin is not enabled. "
+                "Add 'plugins.docker.enabled: true' to aimake.yaml."
+            )
+        return plugin
+
+    def _require_ollama_plugin(self):
+        from aimake.plugins.ollama import OllamaPlugin
+
+        plugin = self.plugin_manager.get("ollama")
+        if plugin is None or not isinstance(plugin, OllamaPlugin):
+            raise ValueError(
+                "Ollama plugin is not enabled. "
+                "Add 'plugins.ollama.enabled: true' to aimake.yaml."
+            )
+        return plugin
+
     def close(self) -> None:
         self.cache.close()

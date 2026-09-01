@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-01
+
+### Added
+- Weights & Biases plugin (`plugins.wandb`, `aimake wandb sync/status`)
+- DVC plugin (`plugins.dvc`, `aimake dvc pull/push/status`)
+- Docker plugin (`plugins.docker`, `aimake docker build/status`, command wrapping)
+- Ollama plugin (`plugins.ollama`, `aimake ollama pull/status`)
+- Optional extras: `wandb`, `dvc`, `plugins`; updated `all` extra
+- Plugin tests (`tests/test_plugins.py`, 101 total tests)
+
+### Changed
+- `PluginManager.wrap_command()` for Docker command rewriting during builds
+- Build runner pre-pulls DVC data and Ollama models before planning
+- README: full plugin docs, updated CLI reference and roadmap
+- PyPI project URLs point to `github.com/arjun988/aimake`
+
 ## [1.0.0] - 2026-09-01
 
 ### Added
@@ -56,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thread-safe SQLite for parallel builds
 - Windows-compatible cache atomic writes and console UTF-8 output
 
-[Unreleased]: https://github.com/arjun988/aimake/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/arjun988/aimake/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/arjun988/aimake/releases/tag/v1.1.0
 [1.0.0]: https://github.com/arjun988/aimake/releases/tag/v1.0.0
 [0.1.0]: https://github.com/arjun988/aimake/releases/tag/v0.1.0

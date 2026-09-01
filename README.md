@@ -34,6 +34,10 @@
 - [Experiments & optimization](#experiments--optimization)
 - [Artifact registry](#artifact-registry)
 - [Hugging Face plugin](#hugging-face-plugin)
+- [Weights & Biases plugin](#weights--biases-plugin)
+- [DVC plugin](#dvc-plugin)
+- [Docker plugin](#docker-plugin)
+- [Ollama plugin](#ollama-plugin)
 - [Python API](#python-api)
 - [CI/CD](#cicd)
 - [Architecture](#architecture)
@@ -87,7 +91,7 @@ When only a prompt changes, everything upstream should be **skipped**. `aimake` 
 | **Cache** | Local SQLite + filesystem; optional S3 remote (`push` / `pull` / `sync`) |
 | **Compute** | GPU-aware scheduling, distributed SSH workers |
 | **Experiments** | Grid/random/Bayesian/Optuna search, Hyperband pruning, Pareto multi-objective |
-| **Integrations** | MLflow export, Hugging Face Hub, artifact registry with promotion stages |
+| **Integrations** | MLflow export, Hugging Face Hub, W&B, DVC, Docker, Ollama, artifact registry |
 | **CI** | Quality gates, `doctor` health checks, `eval --check` for pipelines |
 
 ---
@@ -114,6 +118,11 @@ pipx install aimake
 |-------|---------|---------|
 | `s3` | `pip install aimake[s3]` | S3 remote cache (`boto3`) |
 | `huggingface` | `pip install aimake[huggingface]` | `aimake hf` commands |
+| `wandb` | `pip install aimake[wandb]` | Weights & Biases logging |
+| `dvc` | `pip install aimake[dvc]` | DVC pull/push (`dvc` CLI) |
+| `docker` | Docker Desktop / CLI | Containerized builds |
+| `ollama` | [Ollama](https://ollama.com/) CLI | Local LLM model pull |
+| `plugins` | `pip install aimake[plugins]` | HF + W&B + DVC |
 | `optuna` | `pip install aimake[optuna]` | Bayesian / Optuna optimization |
 | `mlflow` | `pip install aimake[mlflow]` | MLflow trial export |
 | `experiments` | `pip install aimake[experiments]` | Optuna + MLflow |
@@ -348,17 +357,35 @@ Requires `registry.enabled: true` in `aimake.yaml`.
 | `registry list` | `--artifact`, `-a`; `--stage`, `-s`; `--tag`, `-t`; `--limit`, `-n` |
 | `registry promote` | `--stage`, `-s` (default: `production`) |
 
-### Plugins & Hugging Face
+### Plugins
 
 ```bash
 aimake plugins
+
+# Hugging Face
 aimake hf pull <artifact>
 aimake hf push <artifact>
-aimake hf status
-aimake hf status <artifact>
+aimake hf status [artifact]
+
+# Weights & Biases
+aimake wandb sync <artifact>
+aimake wandb status [artifact]
+
+# DVC
+aimake dvc pull <artifact>
+aimake dvc push <artifact>
+aimake dvc status [artifact]
+
+# Docker
+aimake docker build <artifact>
+aimake docker status [artifact]
+
+# Ollama
+aimake ollama pull <artifact>
+aimake ollama status [artifact]
 ```
 
-Requires `plugins.huggingface.enabled: true` and `pip install aimake[huggingface]`.
+Enable plugins in `aimake.yaml` under `plugins.*.enabled: true`. See [plugin sections](#hugging-face-plugin) below.
 
 ### Command summary
 
@@ -397,6 +424,19 @@ aimake
 └── hf
     ├── pull
     ├── push
+    └── status
+├── wandb
+│   ├── sync
+│   └── status
+├── dvc
+│   ├── pull
+│   ├── push
+│   └── status
+├── docker
+│   ├── build
+│   └── status
+└── ollama
+    ├── pull
     └── status
 ```
 
@@ -703,6 +743,147 @@ aimake plugins
 
 ---
 
+## Weights & Biases plugin
+
+```yaml
+plugins:
+  wandb:
+    enabled: true
+    entity: my-team
+    project: my-rag-app
+    api_key_env: WANDB_API_KEY
+    auto_log_metrics: true
+    auto_log_artifacts: false
+
+artifacts:
+  evaluation:
+    type: evaluation
+    depends_on: [embeddings, prompt]
+    command: python src/evaluate.py
+    outputs:
+      - build/evaluation/
+    metrics:
+      file: build/evaluation/results.json
+    metadata:
+      wandb:
+        log_metrics: true
+        log_artifacts: true
+        artifact_name: evaluation-results
+```
+
+```bash
+pip install aimake[wandb]
+export WANDB_API_KEY=...
+aimake wandb sync evaluation
+aimake wandb status
+```
+
+Metrics are logged automatically after each successful build when `auto_log_metrics: true`. Build summaries are logged on `on_build_finish`.
+
+---
+
+## DVC plugin
+
+```yaml
+plugins:
+  dvc:
+    enabled: true
+    remote: origin
+    auto_pull: true
+    auto_push: false
+
+artifacts:
+  dataset:
+    type: dataset
+    source: data/train
+    metadata:
+      dvc:
+        tracked: true
+        path: data/train.dvc
+        pull: true
+```
+
+```bash
+pip install aimake[dvc]    # or install dvc CLI separately
+aimake dvc pull dataset
+aimake dvc push dataset
+aimake dvc status
+```
+
+DVC data is pulled before builds when local files are missing, and optionally pushed after successful artifact completion.
+
+---
+
+## Docker plugin
+
+```yaml
+plugins:
+  docker:
+    enabled: true
+    default_image: python:3.11-slim
+    auto_build: true
+    gpu: false
+
+artifacts:
+  embeddings:
+    type: embedding
+    depends_on: [processed]
+    command: python src/embed.py
+    outputs:
+      - build/embeddings/
+    metadata:
+      docker:
+        image: my-rag:latest
+        dockerfile: docker/Dockerfile
+        build_context: .
+        workdir: /workspace
+        volumes:
+          - .:/workspace
+        gpu: true
+```
+
+```bash
+# Requires Docker CLI (Docker Desktop)
+aimake docker build embeddings
+aimake docker status
+aimake build embeddings   # commands run inside docker run ...
+```
+
+When `metadata.docker` is set, artifact commands are wrapped in `docker run` automatically during `aimake build`.
+
+---
+
+## Ollama plugin
+
+```yaml
+plugins:
+  ollama:
+    enabled: true
+    host: http://localhost:11434
+    auto_pull: true
+
+artifacts:
+  llm:
+    type: model
+    source: models/llm
+    metadata:
+      ollama:
+        model: llama3.2
+        tag: latest
+        pull: true
+```
+
+```bash
+# Requires Ollama running locally
+aimake ollama pull llm
+aimake ollama status
+aimake build llm
+```
+
+Models are pulled via `ollama pull` (or the Ollama HTTP API) before builds when not present locally.
+
+---
+
 ## Python API
 
 ```python
@@ -760,7 +941,7 @@ aimake/
 ├── diff/               # Dataset/model/prompt diffs + snapshots
 ├── experiments/        # Compare, optimize, Hyperband, Pareto, MLflow
 ├── registry/           # Versioned artifact registry
-├── plugins/            # Hugging Face and extensible plugin loader
+├── plugins/            # HF, W&B, DVC, Docker, Ollama plugins
 ├── execution/          # Subprocess runner, parallel scheduler
 ├── artifacts/          # Type-specific artifact handlers
 ├── metrics/            # Metrics parsing, quality gates
@@ -799,8 +980,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 | ✅ | Artifact diffs, experiment comparison, hyperparameter optimization |
 | ✅ | Bayesian/Optuna, Pareto, MLflow, early stopping, Hyperband pruning |
 | ✅ | Artifact registry, Hugging Face plugin |
+| ✅ | Weights & Biases, DVC, Docker, Ollama plugins |
 | 🔜 | Web dashboard |
-| 🔜 | Weights & Biases, DVC, Docker, Ollama plugins |
 
 ---
 

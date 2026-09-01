@@ -732,23 +732,44 @@ def plugins(
             console.print_info("No plugins enabled.")
 
         console.print_info("\nBuilt-in integrations:")
-        for name, extra, note in (
-            ("Hugging Face", "huggingface", "plugins.huggingface.enabled"),
-            ("MLflow", "mlflow", "optimization.mlflow.enabled"),
-            ("Optuna", "optuna", "optimization.strategy: bayesian"),
-            ("S3 cache", "s3", "cache.remote"),
-        ):
-            enabled = any(p.name == name.lower().replace(" ", "") for p in installed)
-            if name == "Hugging Face":
-                enabled = project.config.plugins.huggingface is not None and (
-                    project.config.plugins.huggingface.enabled
-                )
+        plugin_checks = (
+            ("Hugging Face", "huggingface", "plugins.huggingface", "huggingface"),
+            ("Weights & Biases", "wandb", "plugins.wandb", "wandb"),
+            ("DVC", "dvc", "plugins.dvc", "dvc"),
+            ("Docker", "docker", "plugins.docker", "docker"),
+            ("Ollama", "ollama", "plugins.ollama", "ollama"),
+            ("MLflow", "mlflow", "optimization.mlflow", None),
+            ("Optuna", "optuna", "optimization", None),
+            ("S3 cache", "s3", "cache.remote", None),
+        )
+        for name, extra, config_path, plugin_name in plugin_checks:
+            enabled = False
+            if plugin_name and any(p.name == plugin_name for p in installed):
+                enabled = True
+            elif config_path == "plugins.huggingface":
+                cfg = project.config.plugins.huggingface
+                enabled = cfg is not None and cfg.enabled
+            elif config_path == "plugins.wandb":
+                cfg = project.config.plugins.wandb
+                enabled = cfg is not None and cfg.enabled
+            elif config_path == "plugins.dvc":
+                cfg = project.config.plugins.dvc
+                enabled = cfg is not None and cfg.enabled
+            elif config_path == "plugins.docker":
+                cfg = project.config.plugins.docker
+                enabled = cfg is not None and cfg.enabled
+            elif config_path == "plugins.ollama":
+                cfg = project.config.plugins.ollama
+                enabled = cfg is not None and cfg.enabled
+            elif config_path == "optimization.mlflow":
+                enabled = project.config.optimization.mlflow.enabled
+            elif config_path == "optimization":
+                enabled = project.config.optimization.strategy in ("bayesian", "optuna")
+            elif config_path == "cache.remote":
+                enabled = project.config.cache.remote is not None
             mark = "+" if enabled else "-"
-            console.print_info(f"  [{mark}] {name}  (pip install aimake[{extra}])  — {note}")
-
-        console.print_info("\nPlanned:")
-        for name in ("Weights & Biases", "DVC", "Docker", "Ollama"):
-            console.print_info(f"  • {name}")
+            install_hint = f"pip install aimake[{extra}]" if extra else "see README"
+            console.print_info(f"  [{mark}] {name}  ({install_hint})  — {config_path}")
         project.close()
     except ConfigError as e:
         console.print_error(str(e))
@@ -815,6 +836,205 @@ def hf_status(
 
 
 app.add_typer(hf_app, name="hf")
+
+
+wandb_app = typer.Typer(help="Weights & Biases integration.")
+
+
+@wandb_app.command("sync")
+def wandb_sync(
+    artifact: str = typer.Argument(..., help="Artifact to log to W&B"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Log metrics and artifacts for an artifact to Weights & Biases."""
+    try:
+        project = _load_project(config)
+        project.wandb_sync(artifact)
+        console.print_success(f"Synced {artifact} to Weights & Biases")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@wandb_app.command("status")
+def wandb_status(
+    artifact: Optional[str] = typer.Argument(None, help="Artifact name (optional)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show W&B linkage for artifacts."""
+    try:
+        project = _load_project(config)
+        statuses = project.wandb_status(artifact)
+        if not statuses:
+            console.print_info("No W&B-linked artifacts found.")
+        else:
+            for name, info in statuses.items():
+                console.print(f"\n[bold cyan]{name}[/bold cyan]")
+                console.print(f"  project:  {info.get('project')}")
+                console.print(f"  entity:   {info.get('entity')}")
+                console.print(f"  metrics:  {info.get('log_metrics')}")
+                console.print(f"  artifacts:{info.get('log_artifacts')}")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+app.add_typer(wandb_app, name="wandb")
+
+
+dvc_app = typer.Typer(help="DVC data versioning.")
+
+
+@dvc_app.command("pull")
+def dvc_pull(
+    artifact: str = typer.Argument(..., help="Artifact to pull from DVC remote"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Pull DVC-tracked data for an artifact."""
+    try:
+        project = _load_project(config)
+        path = project.dvc_pull(artifact)
+        console.print_success(f"Pulled {artifact} ({path})")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@dvc_app.command("push")
+def dvc_push(
+    artifact: str = typer.Argument(..., help="Artifact to push to DVC remote"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Push DVC-tracked data for an artifact."""
+    try:
+        project = _load_project(config)
+        path = project.dvc_push(artifact)
+        console.print_success(f"Pushed {artifact} ({path})")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@dvc_app.command("status")
+def dvc_status(
+    artifact: Optional[str] = typer.Argument(None, help="Artifact name (optional)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show DVC linkage for artifacts."""
+    try:
+        project = _load_project(config)
+        statuses = project.dvc_status(artifact)
+        if not statuses:
+            console.print_info("No DVC-linked artifacts found.")
+        else:
+            for name, info in statuses.items():
+                console.print(f"\n[bold cyan]{name}[/bold cyan]")
+                console.print(f"  path:    {info.get('path')}")
+                console.print(f"  remote:  {info.get('remote')}")
+                console.print(f"  local:   {'exists' if info.get('local_exists') else 'missing'}")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+app.add_typer(dvc_app, name="dvc")
+
+
+docker_app = typer.Typer(help="Docker container execution.")
+
+
+@docker_app.command("build")
+def docker_build(
+    artifact: str = typer.Argument(..., help="Artifact whose Docker image to build"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Build the Docker image for an artifact."""
+    try:
+        project = _load_project(config)
+        tag = project.docker_build(artifact)
+        console.print_success(f"Built Docker image {tag} for {artifact}")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@docker_app.command("status")
+def docker_status(
+    artifact: Optional[str] = typer.Argument(None, help="Artifact name (optional)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show Docker configuration for artifacts."""
+    try:
+        project = _load_project(config)
+        statuses = project.docker_status(artifact)
+        if not statuses:
+            console.print_info("No Docker-linked artifacts found.")
+        else:
+            for name, info in statuses.items():
+                console.print(f"\n[bold cyan]{name}[/bold cyan]")
+                console.print(f"  image:      {info.get('image')}")
+                console.print(f"  dockerfile: {info.get('dockerfile')}")
+                exists = info.get("image_exists")
+                if exists is not None:
+                    console.print(f"  built:      {'yes' if exists else 'no'}")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+app.add_typer(docker_app, name="docker")
+
+
+ollama_app = typer.Typer(help="Ollama local LLM integration.")
+
+
+@ollama_app.command("pull")
+def ollama_pull(
+    artifact: str = typer.Argument(..., help="Artifact whose Ollama model to pull"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Pull an Ollama model for an artifact."""
+    try:
+        project = _load_project(config)
+        model = project.ollama_pull(artifact)
+        console.print_success(f"Pulled {model} for {artifact}")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@ollama_app.command("status")
+def ollama_status(
+    artifact: Optional[str] = typer.Argument(None, help="Artifact name (optional)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show Ollama model linkage for artifacts."""
+    try:
+        project = _load_project(config)
+        statuses = project.ollama_status(artifact)
+        if not statuses:
+            console.print_info("No Ollama-linked artifacts found.")
+        else:
+            for name, info in statuses.items():
+                console.print(f"\n[bold cyan]{name}[/bold cyan]")
+                console.print(f"  model:  {info.get('model')}")
+                console.print(f"  host:   {info.get('host')}")
+                console.print(f"  local:  {'exists' if info.get('local_exists') else 'missing'}")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+app.add_typer(ollama_app, name="ollama")
 
 
 def _load_project(

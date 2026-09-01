@@ -52,3 +52,11 @@ class PluginManager:
             if plugin.name == name:
                 return plugin
         return None
+
+    def wrap_command(self, artifact: str, artifact_config: Any, command: str) -> str:
+        """Let plugins rewrite commands (e.g. Docker run wrapper)."""
+        for plugin in self._plugins:
+            hook = getattr(plugin, "wrap_command", None)
+            if callable(hook):
+                command = hook(artifact, artifact_config, command)
+        return command

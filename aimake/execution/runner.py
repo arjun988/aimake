@@ -294,6 +294,8 @@ class BuildRunner:
         )
 
         self._resolve_missing_hf_sources(graph)
+        self._resolve_missing_dvc_sources(graph)
+        self._resolve_missing_ollama_models(graph)
         self.compute_fingerprints()
         plan = self.plan(force=force)
 
@@ -420,9 +422,12 @@ class BuildRunner:
                                     )
                                 worker_cfg = worker_state.config
 
+                        command = self.plugin_manager.wrap_command(
+                            name, node.config, node.config.command
+                        )
                         record = self.process.run(
                             name,
-                            node.config.command,
+                            command,
                             env_vars=list(
                                 set(self.config.environment + node.config.environment)
                             ),
@@ -634,6 +639,26 @@ class BuildRunner:
                 if source and not (self.project_root / source).exists():
                     hf_plugin.pull(node.config, artifact_name=node.name)
                     self._log(f"PULLED {node.name} from Hugging Face Hub")
+
+    def _resolve_missing_dvc_sources(self, graph: Graph) -> None:
+        """Pull DVC-tracked data when local paths are missing."""
+        dvc_plugin = self.plugin_manager.get("dvc")
+        if dvc_plugin is None:
+            return
+        for node in graph:
+            if dvc_plugin.should_pull(node.config, rebuilding=False):
+                dvc_plugin.pull(node.config, artifact_name=node.name)
+                self._log(f"PULLED {node.name} from DVC remote")
+
+    def _resolve_missing_ollama_models(self, graph: Graph) -> None:
+        """Pull Ollama models when not present locally."""
+        ollama_plugin = self.plugin_manager.get("ollama")
+        if ollama_plugin is None:
+            return
+        for node in graph:
+            if ollama_plugin.should_pull(node.config, rebuilding=False):
+                model = ollama_plugin.pull(node.config, artifact_name=node.name)
+                self._log(f"PULLED Ollama model {model} for {node.name}")
 
     def _parameter_env(self, node) -> dict[str, str]:
         """Expose artifact and trial parameters as AIMAKE_PARAM_* env vars."""

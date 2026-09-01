@@ -25,7 +25,7 @@ class HuggingFacePlugin(AimakePlugin):
     """Pull and push models/datasets via the Hugging Face Hub."""
 
     name = "huggingface"
-    version = "1.0.0"
+    version = "1.1.0"
 
     def __init__(self, config: HuggingFacePluginConfig, project_root: Path) -> None:
         self.config = config
