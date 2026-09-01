@@ -303,7 +303,32 @@ def print_cache_status(status: dict) -> None:
         rich_console.print(f"[cyan]Remote only:[/cyan] {len(only_remote)} entries")
 
 
-def print_workers_status(status: dict) -> None:
+def print_registry(entries) -> None:
+    """Print artifact registry entries."""
+    if not entries:
+        rich_console.print_info("Registry is empty.")
+        return
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Artifact")
+    table.add_column("Version")
+    table.add_column("Stage")
+    table.add_column("Fingerprint")
+    table.add_column("Build")
+    table.add_column("Tags")
+    for entry in entries:
+        fp = entry.fingerprint[:16] + "..." if entry.fingerprint else "-"
+        tags = ", ".join(entry.tags) if entry.tags else "-"
+        table.add_row(
+            entry.artifact_name,
+            entry.version,
+            entry.stage,
+            fp,
+            f"#{entry.build_id}" if entry.build_id else "-",
+            tags,
+        )
+    rich_console.print(table)
+
+
     rich_console.print("\n[bold]WORKERS & GPUs[/bold]\n")
     gpus = status.get("gpus_detected", [])
     if gpus:
@@ -412,6 +437,8 @@ def print_optimization_result(result) -> None:
 
     if result.stopped_early:
         rich_console.print_info("Stopped early (no improvement within patience window)")
+    if result.pruned_trials:
+        rich_console.print_info(f"Pruned trials: {result.pruned_trials}")
     if result.mlflow_run_id:
         rich_console.print_info(f"MLflow run: {result.mlflow_run_id}")
 

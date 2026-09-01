@@ -100,6 +100,23 @@ class StateDatabase:
     );
 
     CREATE INDEX IF NOT EXISTS idx_trials_experiment ON experiment_trials(experiment_id);
+
+    CREATE TABLE IF NOT EXISTS registry_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        artifact_name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        build_id INTEGER,
+        stage TEXT NOT NULL DEFAULT 'dev',
+        tags TEXT,
+        metadata TEXT,
+        metrics TEXT,
+        created_at TEXT NOT NULL,
+        UNIQUE(artifact_name, version)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_registry_artifact ON registry_versions(artifact_name);
+    CREATE INDEX IF NOT EXISTS idx_registry_stage ON registry_versions(stage);
     """
 
     def __init__(self, aimake_dir: Path) -> None:
@@ -490,6 +507,141 @@ class StateDatabase:
             (path, file_hash, size, mtime),
         )
         self.conn.commit()
+
+    def register_artifact_version(
+        self,
+        artifact_name: str,
+        version: str,
+        *,
+        fingerprint: str,
+        build_id: int | None = None,
+        stage: str = "dev",
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        metrics: dict[str, Any] | None = None,
+    ) -> int:
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = self.conn.execute(
+            """
+            INSERT INTO registry_versions (
+                artifact_name, version, fingerprint, build_id, stage,
+                tags, metadata, metrics, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(artifact_name, version) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                build_id = excluded.build_id,
+                stage = excluded.stage,
+                tags = excluded.tags,
+                metadata = excluded.metadata,
+                metrics = excluded.metrics,
+                created_at = excluded.created_at
+            """,
+            (
+                artifact_name,
+                version,
+                fingerprint,
+                build_id,
+                stage,
+                json.dumps(tags or []),
+                json.dumps(metadata or {}),
+                json.dumps(metrics or {}),
+                now,
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+    def list_registry_versions(
+        self,
+        artifact_name: str | None = None,
+        *,
+        stage: str | None = None,
+        tag: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM registry_versions WHERE 1=1"
+        params: list[Any] = []
+        if artifact_name:
+            query += " AND artifact_name = ?"
+            params.append(artifact_name)
+        if stage:
+            query += " AND stage = ?"
+            params.append(stage)
+        if tag:
+            query += " AND tags LIKE ?"
+            params.append(f'%"{tag}"%')
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = self.conn.execute(query, params).fetchall()
+        return [self._normalize_registry_row(row) for row in rows]
+
+    def get_registry_version(self, artifact_name: str, version: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM registry_versions WHERE artifact_name = ? AND version = ?",
+            (artifact_name, version),
+        ).fetchone()
+        return self._normalize_registry_row(row) if row else None
+
+    def get_latest_registry_version(
+        self,
+        artifact_name: str,
+        *,
+        stage: str | None = None,
+    ) -> dict[str, Any] | None:
+        if stage:
+            row = self.conn.execute(
+                """
+                SELECT * FROM registry_versions
+                WHERE artifact_name = ? AND stage = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (artifact_name, stage),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                """
+                SELECT * FROM registry_versions
+                WHERE artifact_name = ?
+                ORDER BY id DESC LIMIT 1
+                """,
+                (artifact_name,),
+            ).fetchone()
+        return self._normalize_registry_row(row) if row else None
+
+    def promote_registry_version(self, artifact_name: str, version: str, stage: str) -> bool:
+        cursor = self.conn.execute(
+            """
+            UPDATE registry_versions SET stage = ?
+            WHERE artifact_name = ? AND version = ?
+            """,
+            (stage, artifact_name, version),
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def tag_registry_version(self, artifact_name: str, version: str, tags: list[str]) -> bool:
+        row = self.get_registry_version(artifact_name, version)
+        if not row:
+            return False
+        merged = sorted(set((row.get("tags") or []) + tags))
+        self.conn.execute(
+            """
+            UPDATE registry_versions SET tags = ?
+            WHERE artifact_name = ? AND version = ?
+            """,
+            (json.dumps(merged), artifact_name, version),
+        )
+        self.conn.commit()
+        return True
+
+    def _normalize_registry_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        for key in ("tags", "metadata", "metrics"):
+            val = data.get(key)
+            if isinstance(val, str):
+                data[key] = json.loads(val or ("[]" if key == "tags" else "{}"))
+        return data
 
     def _row_to_state(self, row: sqlite3.Row) -> ArtifactState:
         created = row["created_at"]

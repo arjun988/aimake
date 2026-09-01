@@ -628,6 +628,94 @@ def experiments_show(
 app.add_typer(experiments_app, name="experiments")
 
 
+registry_app = typer.Typer(help="Versioned artifact registry.")
+
+
+@registry_app.command("list")
+def registry_list(
+    artifact: Optional[str] = typer.Option(None, "--artifact", "-a"),
+    stage: Optional[str] = typer.Option(None, "--stage", "-s"),
+    tag: Optional[str] = typer.Option(None, "--tag", "-t"),
+    limit: int = typer.Option(50, "--limit", "-n"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """List registered artifact versions."""
+    try:
+        project = _load_project(config)
+        entries = project.registry_list(artifact, stage=stage, tag=tag, limit=limit)
+        console.print_registry(entries)
+        project.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@registry_app.command("show")
+def registry_show(
+    artifact: str = typer.Argument(..., help="Artifact name"),
+    version: str = typer.Argument(..., help="Version (e.g. v1)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show a registry entry."""
+    try:
+        project = _load_project(config)
+        entry = project.registry.get(artifact, version)
+        if not entry:
+            console.print_error(f"Not found: {artifact}@{version}")
+            raise typer.Exit(code=1)
+        console.print(f"\n[bold]{entry.artifact_name}@{entry.version}[/bold]")
+        console.print(f"  stage:       {entry.stage}")
+        console.print(f"  fingerprint: {entry.fingerprint}")
+        console.print(f"  build:       #{entry.build_id}" if entry.build_id else "  build:       -")
+        if entry.tags:
+            console.print(f"  tags:        {', '.join(entry.tags)}")
+        if entry.metrics:
+            console.print(f"  metrics:     {entry.metrics}")
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@registry_app.command("promote")
+def registry_promote(
+    artifact: str = typer.Argument(..., help="Artifact name"),
+    version: str = typer.Argument(..., help="Version"),
+    stage: str = typer.Option("production", "--stage", "-s"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Promote a registry version to staging or production."""
+    try:
+        project = _load_project(config)
+        entry = project.registry_promote(artifact, version, stage)
+        console.print_success(f"Promoted {artifact}@{version} → {entry.stage}")
+        project.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@registry_app.command("tag")
+def registry_tag(
+    artifact: str = typer.Argument(..., help="Artifact name"),
+    version: str = typer.Argument(..., help="Version"),
+    tags: list[str] = typer.Argument(..., help="Tags to add"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Add tags to a registry version."""
+    try:
+        project = _load_project(config)
+        entry = project.registry_tag(artifact, version, tags)
+        console.print_success(f"Tagged {artifact}@{version}: {', '.join(entry.tags)}")
+        project.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+app.add_typer(registry_app, name="registry")
+
+
 @app.command()
 def plugins(
     config: Optional[Path] = typer.Option(None, "--config", "-c"),

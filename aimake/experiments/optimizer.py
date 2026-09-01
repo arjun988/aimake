@@ -6,10 +6,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from aimake.config.schema import AimakeConfig, OptimizationConfig
+from aimake.experiments.fidelity import apply_fidelity, fidelity_env, fidelity_steps
+from aimake.experiments.hyperband import run_hyperband, run_successive_halving
 from aimake.experiments.mlflow_export import export_optimization
 from aimake.experiments.optuna_search import (
     create_study,
     preview_trials,
+    require_optuna,
     suggest_parameters,
 )
 from aimake.experiments.pareto import extract_numeric_metrics, pareto_front_indices
@@ -33,6 +36,8 @@ class TrialResult:
     objective_values: dict[str, float] = field(default_factory=dict)
     success: bool = False
     on_pareto_front: bool = False
+    fidelity: int | None = None
+    pruned: bool = False
 
 
 @dataclass
@@ -48,6 +53,7 @@ class OptimizationResult:
     pareto_front: list[TrialResult] = field(default_factory=list)
     stopped_early: bool = False
     mlflow_run_id: str | None = None
+    pruned_trials: int = 0
 
     @property
     def success(self) -> bool:
@@ -128,7 +134,32 @@ class Optimizer:
             self.db.finish_experiment(experiment_id, status="planned")
             return result
 
-        if opt.strategy in _BAYESIAN_STRATEGIES:
+        if opt.pruning and opt.pruning.enabled and not is_multi:
+            if opt.strategy in _BAYESIAN_STRATEGIES:
+                self._run_optuna_multifidelity(
+                    result,
+                    opt,
+                    objective,
+                    param_artifact,
+                    metric_artifact,
+                    max_trials,
+                    experiment_id,
+                    metric_names,
+                    directions,
+                )
+            else:
+                self._run_pruning_trials(
+                    result,
+                    opt,
+                    objective,
+                    param_artifact,
+                    metric_artifact,
+                    max_trials,
+                    experiment_id,
+                    metric_names,
+                    directions,
+                )
+        elif opt.strategy in _BAYESIAN_STRATEGIES:
             self._run_optuna_trials(
                 result,
                 opt,
@@ -189,10 +220,12 @@ class Optimizer:
                 strategy=opt.strategy,
                 max_trials=max_trials,
                 seed=opt.seed,
+                pruning=opt.pruning,
             )
+        strategy = "random" if opt.strategy == "hyperband" else opt.strategy
         return generate_trials(
             opt.search_space,
-            strategy=opt.strategy,
+            strategy=strategy,
             max_trials=max_trials,
             seed=opt.seed,
         )
@@ -264,6 +297,144 @@ class Optimizer:
         result.best_trial = best_trial
         result.best_value = best_value
 
+    def _run_pruning_trials(
+        self,
+        result: OptimizationResult,
+        opt: OptimizationConfig,
+        objective,
+        param_artifact: str,
+        metric_artifact: str,
+        max_trials: int,
+        experiment_id: int,
+        metric_names: list[str],
+        directions: dict[str, str],
+    ) -> None:
+        assert opt.pruning is not None
+        configs = self._plan_trials(opt, objective, max_trials)
+        if not configs:
+            raise ValueError("No trials generated from search space")
+
+        direction = directions[metric_names[0]]
+        trial_counter = 0
+
+        def evaluate(params: dict[str, Any], level: int, _num: int) -> TrialResult:
+            nonlocal trial_counter
+            trial_counter += 1
+            scaled = apply_fidelity(params, level, opt.pruning, opt.search_space)
+            return self._run_trial(
+                trial_counter,
+                scaled,
+                param_artifact,
+                metric_artifact,
+                experiment_id,
+                metric_names,
+                directions,
+                is_multi=False,
+                fidelity=level,
+                pruning=opt.pruning,
+            )
+
+        if opt.pruning.strategy == "hyperband":
+            halving = run_hyperband(
+                configs,
+                evaluate,
+                opt.pruning,
+                direction=direction,
+                seed=opt.seed,
+            )
+        else:
+            halving = run_successive_halving(
+                configs,
+                evaluate,
+                opt.pruning,
+                direction=direction,
+                seed=opt.seed,
+            )
+
+        for trial in halving.trials:
+            result.trials.append(trial)
+            self._save_trial_record(experiment_id, trial)
+        result.pruned_trials = halving.pruned_count
+        result.best_trial = halving.best_trial
+        result.best_value = halving.best_value
+        if halving.best_trial:
+            result.best_build_id = halving.best_trial.build_id
+            result.best_parameters = dict(halving.best_trial.parameters)
+
+    def _run_optuna_multifidelity(
+        self,
+        result: OptimizationResult,
+        opt: OptimizationConfig,
+        objective,
+        param_artifact: str,
+        metric_artifact: str,
+        max_trials: int,
+        experiment_id: int,
+        metric_names: list[str],
+        directions: dict[str, str],
+    ) -> None:
+        optuna = require_optuna()
+        from optuna.exceptions import TrialPruned
+
+        study = create_study(
+            objective,
+            strategy=opt.strategy,
+            seed=opt.seed,
+            pruning=opt.pruning,
+        )
+        trial_counter = 0
+        best_value: float | None = None
+        best_trial: TrialResult | None = None
+        direction = directions[metric_names[0]]
+        pruning = opt.pruning
+        assert pruning is not None
+
+        def objective_fn(optuna_trial) -> float:
+            nonlocal trial_counter, best_value, best_trial
+            trial_counter += 1
+            params = suggest_parameters(optuna_trial, opt.search_space)
+            last_value: float | None = None
+
+            for level in fidelity_steps(pruning):
+                scaled = apply_fidelity(params, level, pruning, opt.search_space)
+                trial = self._run_trial(
+                    trial_counter,
+                    scaled,
+                    param_artifact,
+                    metric_artifact,
+                    experiment_id,
+                    metric_names,
+                    directions,
+                    is_multi=False,
+                    fidelity=level,
+                    pruning=pruning,
+                )
+                result.trials.append(trial)
+                self._save_trial_record(experiment_id, trial)
+
+                if not trial.success or trial.objective_value is None:
+                    raise TrialPruned()
+
+                last_value = trial.objective_value
+                optuna_trial.report(last_value, level)
+                if optuna_trial.should_prune():
+                    trial.pruned = True
+                    result.pruned_trials += 1
+                    raise TrialPruned()
+
+            if last_value is not None and (
+                best_value is None or self._is_improvement(last_value, best_value, direction, 0.0)
+            ):
+                best_value = last_value
+                best_trial = result.trials[-1]
+                result.best_build_id = best_trial.build_id
+                result.best_parameters = dict(params)
+            return last_value  # type: ignore[return-value]
+
+        study.optimize(objective_fn, n_trials=max_trials)
+        result.best_trial = best_trial
+        result.best_value = best_value
+
     def _run_optuna_trials(
         self,
         result: OptimizationResult,
@@ -277,7 +448,7 @@ class Optimizer:
         metric_names: list[str],
         directions: dict[str, str],
     ) -> None:
-        study = create_study(objective, strategy=opt.strategy, seed=opt.seed)
+        study = create_study(objective, strategy=opt.strategy, seed=opt.seed, pruning=opt.pruning)
         best_value: float | None = None
         best_trial: TrialResult | None = None
         trials_since_improvement = 0
@@ -354,6 +525,9 @@ class Optimizer:
         metric_names: list[str],
         directions: dict[str, str],
         is_multi: bool,
+        *,
+        fidelity: int | None = None,
+        pruning=None,
     ) -> TrialResult:
         trial_config = self._apply_parameters(param_artifact, params)
         graph = Graph.from_config(trial_config)
@@ -366,12 +540,20 @@ class Optimizer:
             debug=self.debug,
             verbose=self.verbose,
         )
+        fenv: dict[str, str] = {}
+        max_fid = None
+        if fidelity is not None and pruning is not None:
+            fenv = fidelity_env(fidelity, pruning)
+            max_fid = pruning.max_fidelity
         build_result = runner.build(
             targets=[metric_artifact],
             force={metric_artifact},
             build_parameters=params,
             experiment_id=experiment_id,
             trial_number=trial_number,
+            fidelity_level=fidelity,
+            max_fidelity=max_fid,
+            fidelity_env=fenv,
         )
 
         metrics = self._collect_metrics(trial_config, metric_artifact, build_result.metrics)
@@ -388,6 +570,7 @@ class Optimizer:
             objective_value=objective_value,
             objective_values=objective_values,
             success=build_result.success and bool(objective_values),
+            fidelity=fidelity,
         )
 
     def _save_trial_record(self, experiment_id: int, trial: TrialResult) -> None:

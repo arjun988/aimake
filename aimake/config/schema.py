@@ -254,6 +254,59 @@ class PluginsConfig(BaseModel):
     huggingface: HuggingFacePluginConfig | None = None
 
 
+class RegistryConfig(BaseModel):
+    """Versioned artifact registry."""
+
+    enabled: bool = False
+    auto_register: bool = True
+    default_stage: str = "dev"
+
+    @field_validator("default_stage")
+    @classmethod
+    def normalize_stage(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ("dev", "staging", "production"):
+            raise ValueError("Registry default_stage must be dev, staging, or production")
+        return v
+
+
+class PruningConfig(BaseModel):
+    """Hyperband / successive-halving pruning for optimization."""
+
+    enabled: bool = False
+    strategy: str = "hyperband"  # hyperband | successive_halving
+    min_fidelity: int = 1
+    max_fidelity: int = 3
+    reduction_factor: int = 3
+    fidelity_param: str | None = None
+    fidelity_values: list[float | int] | None = None
+
+    @field_validator("strategy")
+    @classmethod
+    def normalize_strategy(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ("hyperband", "successive_halving"):
+            raise ValueError("Pruning strategy must be 'hyperband' or 'successive_halving'")
+        return v
+
+    @model_validator(mode="after")
+    def validate_pruning(self) -> PruningConfig:
+        if self.min_fidelity < 1:
+            raise ValueError("pruning.min_fidelity must be >= 1")
+        if self.max_fidelity < self.min_fidelity:
+            raise ValueError("pruning.max_fidelity must be >= min_fidelity")
+        if self.reduction_factor < 2:
+            raise ValueError("pruning.reduction_factor must be >= 2")
+        if self.fidelity_values:
+            expected = self.max_fidelity - self.min_fidelity + 1
+            if len(self.fidelity_values) != expected:
+                raise ValueError(
+                    f"pruning.fidelity_values needs {expected} entries "
+                    f"for fidelity {self.min_fidelity}..{self.max_fidelity}"
+                )
+        return self
+
+
 class OptimizationConfig(BaseModel):
     """Automatic hyperparameter optimization."""
 
@@ -263,6 +316,7 @@ class OptimizationConfig(BaseModel):
     search_space: dict[str, SearchParamConfig] = Field(default_factory=dict)
     objective: ObjectiveConfig | None = None
     early_stopping: EarlyStoppingConfig | None = None
+    pruning: PruningConfig | None = None
     mlflow: MLflowConfig | None = None
     seed: int | None = None
 
@@ -270,9 +324,10 @@ class OptimizationConfig(BaseModel):
     @classmethod
     def normalize_strategy(cls, v: str) -> str:
         v = v.lower()
-        if v not in ("grid", "random", "bayesian", "optuna"):
+        if v not in ("grid", "random", "bayesian", "optuna", "hyperband"):
             raise ValueError(
-                "Optimization strategy must be 'grid', 'random', 'bayesian', or 'optuna'"
+                "Optimization strategy must be 'grid', 'random', 'bayesian', "
+                "'optuna', or 'hyperband'"
             )
         return v
 
@@ -298,6 +353,7 @@ class AimakeConfig(BaseModel):
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
     optimization: OptimizationConfig | None = None
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+    registry: RegistryConfig = Field(default_factory=RegistryConfig)
 
     @model_validator(mode="after")
     def validate_artifacts(self) -> AimakeConfig:

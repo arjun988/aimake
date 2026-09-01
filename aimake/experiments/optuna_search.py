@@ -1,10 +1,10 @@
-"""Optuna-backed Bayesian search."""
+"""Optuna-backed Bayesian search with multi-fidelity pruners."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from aimake.config.schema import ObjectiveConfig, SearchParamConfig
+from aimake.config.schema import ObjectiveConfig, PruningConfig, SearchParamConfig
 
 
 def require_optuna():
@@ -17,11 +17,29 @@ def require_optuna():
     return optuna
 
 
+def create_pruner(pruning: PruningConfig | None):
+    """Create an Optuna pruner from aimake pruning config."""
+    if pruning is None or not pruning.enabled:
+        return None
+    optuna = require_optuna()
+    if pruning.strategy == "successive_halving":
+        return optuna.pruners.SuccessiveHalvingPruner(
+            min_resource=pruning.min_fidelity,
+            reduction_factor=pruning.reduction_factor,
+        )
+    return optuna.pruners.HyperbandPruner(
+        min_resource=pruning.min_fidelity,
+        max_resource=pruning.max_fidelity,
+        reduction_factor=pruning.reduction_factor,
+    )
+
+
 def create_study(
     objective: ObjectiveConfig,
     *,
     strategy: str,
     seed: int | None = None,
+    pruning: PruningConfig | None = None,
 ):
     """Create an Optuna study for single- or multi-objective search."""
     optuna = require_optuna()
@@ -29,12 +47,13 @@ def create_study(
 
     directions = list(objective.metric_directions().values())
     metric_names = objective.metric_names()
+    pruner = create_pruner(pruning)
 
     sampler = TPESampler(seed=seed)
     if len(metric_names) > 1:
-        return optuna.create_study(directions=directions, sampler=sampler)
+        return optuna.create_study(directions=directions, sampler=sampler, pruner=pruner)
 
-    return optuna.create_study(direction=directions[0], sampler=sampler)
+    return optuna.create_study(direction=directions[0], sampler=sampler, pruner=pruner)
 
 
 def suggest_parameters(
@@ -71,15 +90,18 @@ def preview_trials(
     strategy: str,
     max_trials: int,
     seed: int | None = None,
+    pruning: PruningConfig | None = None,
 ) -> list[dict[str, Any]]:
     """Generate parameter sets via Optuna ask without running builds."""
-    study = create_study(objective, strategy=strategy, seed=seed)
+    study = create_study(objective, strategy=strategy, seed=seed, pruning=pruning)
     trials: list[dict[str, Any]] = []
     for _ in range(max_trials):
         trial = study.ask()
         params = suggest_parameters(trial, search_space)
         trials.append(params)
-        # Placeholder values for dry-run tell
         values = [0.0] * len(objective.metric_names())
-        study.tell(trial, *values) if len(values) > 1 else study.tell(trial, values[0])
+        if len(values) > 1:
+            study.tell(trial, values)
+        else:
+            study.tell(trial, values[0])
     return trials

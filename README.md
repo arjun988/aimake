@@ -503,6 +503,26 @@ During `aimake build`, the plugin auto-pulls missing Hub assets and optionally p
 
 ---
 
+## Artifact registry
+
+Track versioned builds with promotion stages:
+
+```yaml
+registry:
+  enabled: true
+  auto_register: true
+  default_stage: dev
+```
+
+```bash
+aimake registry list
+aimake registry show evaluation v1
+aimake registry promote evaluation v1 --stage production
+aimake registry tag evaluation v1 best
+```
+
+---
+
 Define a search space in `aimake.yaml` and run end-to-end hyperparameter search:
 
 ```yaml
@@ -558,6 +578,25 @@ optimization:
 ```
 
 After optimization, `aimake optimize` reports the Pareto front (non-dominated trials). Export all trials to MLflow with `pip install aimake[mlflow]` and `mlflow.enabled: true`.
+
+### Hyperband pruning & multi-fidelity
+
+Stop unpromising trials early by running builds at increasing fidelity:
+
+```yaml
+optimization:
+  strategy: optuna          # or hyperband (random + Hyperband scheduler)
+  pruning:
+    enabled: true
+    strategy: hyperband       # hyperband | successive_halving
+    min_fidelity: 1
+    max_fidelity: 3
+    reduction_factor: 3
+    fidelity_param: epochs    # scaled per fidelity level
+    fidelity_values: [1, 5, 10]
+```
+
+With `strategy: optuna` or `bayesian`, Optuna's `HyperbandPruner` / `SuccessiveHalvingPruner` drives multi-fidelity pruning via `trial.report()` and `trial.should_prune()`. Scripts read `AIMAKE_FIDELITY`, `AIMAKE_FIDELITY_VALUE`, and `AIMAKE_MAX_FIDELITY` from the environment.
 
 Scripts can read trial parameters from the environment:
 
@@ -628,9 +667,9 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 - **Done:** Remote S3 cache, GPU scheduling, distributed workers, artifact diffs
 - **Done:** Experiment comparison (`aimake compare`), automatic optimization (`aimake optimize`)
 - **Done:** Bayesian/Optuna search, multi-objective Pareto, MLflow export, early stopping
-- **Done:** Hugging Face Hub plugin (`aimake hf pull/push/status`)
-- **Phase 2:** Web dashboard, artifact registry
-- **Phase 3:** Hyperband pruning, Optuna multi-fidelity, experiment dashboards
+- **Done:** Artifact registry (`aimake registry`), Hyperband pruning, Optuna multi-fidelity
+- **Phase 2:** Web dashboard
+- **Phase 3:** Experiment dashboards, advanced registry remotes
 - **Phase 4:** Optional `aimake cloud` (CLI remains fully local)
 
 The plugin interface is designed but integrations are not yet implemented. Use `aimake plugins` to see planned integrations.

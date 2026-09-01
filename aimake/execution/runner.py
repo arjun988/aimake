@@ -76,6 +76,9 @@ class BuildRunner:
         self._statuses: dict[str, ArtifactStatus] = {}
         self._build_id: int | None = None
         self._build_parameters: dict[str, Any] = {}
+        self._fidelity_level: int | None = None
+        self._max_fidelity: int | None = None
+        self._fidelity_env: dict[str, str] = {}
         self._log_path: Path | None = None
         self._log_lines: list[str] = []
 
@@ -251,6 +254,9 @@ class BuildRunner:
         build_parameters: dict[str, Any] | None = None,
         experiment_id: int | None = None,
         trial_number: int | None = None,
+        fidelity_level: int | None = None,
+        max_fidelity: int | None = None,
+        fidelity_env: dict[str, str] | None = None,
     ) -> BuildResult:
         """Execute incremental build."""
         import time
@@ -259,6 +265,9 @@ class BuildRunner:
 
         start_time = time.monotonic()
         self._build_parameters = dict(build_parameters or {})
+        self._fidelity_level = fidelity_level
+        self._max_fidelity = max_fidelity
+        self._fidelity_env = dict(fidelity_env or {})
 
         # Expand force to include all downstream dependents
         if force:
@@ -368,6 +377,7 @@ class BuildRunner:
                             metadata=metadata,
                         ),
                     )
+                    self._maybe_register_artifact(name, fp, metadata=metadata)
                 elif node.config.command:
                     gpu_indices: list[int] = []
                     worker_state = None
@@ -477,6 +487,7 @@ class BuildRunner:
                             duration=record.duration,
                         ),
                     )
+                    self._maybe_register_artifact(name, fp, metadata=metadata, metrics=metrics)
                 else:
                     metadata = self._build_metadata(node)
                     self.cache.store(
@@ -629,7 +640,32 @@ class BuildRunner:
         merged: dict[str, Any] = {}
         merged.update(node.config.parameters)
         merged.update(self._build_parameters)
-        return {f"AIMAKE_PARAM_{key.upper()}": str(value) for key, value in merged.items()}
+        env = {f"AIMAKE_PARAM_{key.upper()}": str(value) for key, value in merged.items()}
+        env.update(self._fidelity_env)
+        return env
+
+    def _maybe_register_artifact(
+        self,
+        name: str,
+        fingerprint: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+        metrics: dict[str, Any] | None = None,
+    ) -> None:
+        if not self.config.registry.enabled or not self.config.registry.auto_register:
+            return
+        from aimake.registry.store import ArtifactRegistry
+
+        registry = ArtifactRegistry(self.db)
+        registry.register(
+            name,
+            fingerprint,
+            build_id=self._build_id,
+            stage=self.config.registry.default_stage,
+            metadata=metadata,
+            metrics=metrics,
+        )
+        self._log(f"REGISTERED {name} in artifact registry")
 
     def _build_metadata(self, node) -> dict[str, Any]:
         """Merge user metadata with captured snapshot for rich diffs."""

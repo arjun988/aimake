@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Early stopping (`optimization.early_stopping`: patience, min_trials, min_delta)
 - MLflow export (`optimization.mlflow`, requires `aimake[mlflow]`)
 - Hugging Face Hub plugin (`plugins.huggingface`, `aimake hf pull/push/status`, requires `aimake[huggingface]`)
+- Versioned artifact registry (`registry` config, `aimake registry list/show/promote/tag`)
+- Hyperband and successive-halving pruning (`optimization.pruning`)
+- Optuna multi-fidelity optimization with HyperbandPruner / SuccessiveHalvingPruner
 
 ### Changed
 - `Fingerprinter` uses persistent file-hash cache when `.aimake/state.db` is available

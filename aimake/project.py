@@ -270,6 +270,29 @@ class Project:
         """List trials for an experiment."""
         return self.cache.state_db.get_experiment_trials(experiment_id)
 
+    @property
+    def registry(self):
+        """Artifact registry for versioned builds."""
+        from aimake.registry.store import ArtifactRegistry
+
+        return ArtifactRegistry(self.cache.state_db)
+
+    def registry_list(
+        self,
+        artifact: str | None = None,
+        *,
+        stage: str | None = None,
+        tag: str | None = None,
+        limit: int = 50,
+    ):
+        return self.registry.list(artifact, stage=stage, tag=tag, limit=limit)
+
+    def registry_promote(self, artifact: str, version: str, stage: str):
+        return self.registry.promote(artifact, version, stage)
+
+    def registry_tag(self, artifact: str, version: str, tags: list[str]):
+        return self.registry.tag(artifact, version, tags)
+
     def _metric_directions(self) -> tuple[set[str], set[str]]:
         higher: set[str] = set()
         lower: set[str] = set()
