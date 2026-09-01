@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -16,28 +18,46 @@ from aimake.models import (
     ExplainResult,
 )
 
-console = Console()
+# ASCII fallbacks when the terminal cannot render Unicode symbols
+_OK = "✓" if sys.platform != "win32" else "+"
+_ERR = "✗" if sys.platform != "win32" else "x"
+_ARROW = "→" if sys.platform != "win32" else "->"
+_RESTORE = "↻" if sys.platform != "win32" else "~>"
+
+SYMBOL_CACHED = f"{_OK} cached" if sys.platform != "win32" else "+ cached"
+SYMBOL_REBUILD = f"{_ARROW} rebuild"
+SYMBOL_RESTORE = f"{_RESTORE} restore"
+
+rich_console = Console()
+
+# Backward-compatible alias used throughout this module
+console = rich_console
+
+
+def print(*args, **kwargs) -> None:
+    """Print to the aimake Rich console."""
+    rich_console.print(*args, **kwargs)
 
 
 def print_header(title: str = "AIMAKE") -> None:
-    console.print()
-    console.print(Panel(f"[bold cyan]{title}[/bold cyan]", expand=False))
+    rich_console.print()
+    rich_console.print(Panel(f"[bold cyan]{title}[/bold cyan]", expand=False))
 
 
 def print_success(message: str) -> None:
-    console.print(f"[green]✓[/green] {message}")
+    rich_console.print(f"[green]{_OK}[/green] {message}")
 
 
 def print_error(message: str) -> None:
-    console.print(f"[red]✗[/red] {message}")
+    rich_console.print(f"[red]{_ERR}[/red] {message}")
 
 
 def print_warning(message: str) -> None:
-    console.print(f"[yellow]![/yellow] {message}")
+    rich_console.print(f"[yellow]![/yellow] {message}")
 
 
 def print_info(message: str) -> None:
-    console.print(f"[dim]{message}[/dim]")
+    rich_console.print(f"[dim]{message}[/dim]")
 
 
 def status_label(status: ArtifactStatus) -> Text:
@@ -86,26 +106,26 @@ def print_status_table(
 ) -> None:
     for name in names:
         status = statuses.get(name, ArtifactStatus.UNKNOWN)
-        console.print(f"  {name:<30} {status_label(status)}")
+        rich_console.print(f"  {name:<30} {status_label(status)}")
 
 
 def print_build_plan(plan: BuildPlan) -> None:
-    console.print("\n[bold]Build plan:[/bold]\n")
+    rich_console.print("\n[bold]Build plan:[/bold]\n")
     for entry in plan.entries:
-        console.print(f"  {action_label(entry.action)}  {entry.name}")
+        rich_console.print(f"  {action_label(entry.action)}  {entry.name}")
 
 
 def print_build_summary(result: BuildResult) -> None:
-    console.print()
+    rich_console.print()
     if result.success:
-        console.print(
+        rich_console.print(
             f"[green]Build completed[/green] in [bold]{result.duration:.1f}s[/bold]"
         )
     else:
-        console.print(
+        rich_console.print(
             f"[red]Build failed[/red] after [bold]{result.duration:.1f}s[/bold]"
         )
-    console.print(
+    rich_console.print(
         f"\n  {len(result.rebuilt)} rebuilt\n"
         f"  {len(result.reused)} reused\n"
         f"  {len(result.failed)} failed"
@@ -115,7 +135,7 @@ def print_build_summary(result: BuildResult) -> None:
 def print_metrics(metrics: dict) -> None:
     if not metrics:
         return
-    console.print("\n[bold]EVALUATION[/bold]\n")
+    rich_console.print("\n[bold]EVALUATION[/bold]\n")
     table = Table(show_header=True, header_style="bold")
     table.add_column("Metric")
     table.add_column("Value", justify="right")
@@ -136,35 +156,35 @@ def print_metrics(metrics: dict) -> None:
                 display = str(value)
             table.add_row(key, display)
 
-    console.print(table)
+    rich_console.print(table)
 
 
 def print_explain(result: ExplainResult) -> None:
-    console.print("\n[bold]WHY IS THIS TARGET STALE?[/bold]\n")
-    console.print(f"[cyan]{result.target}[/cyan]")
+    rich_console.print("\n[bold]WHY IS THIS TARGET STALE?[/bold]\n")
+    rich_console.print(f"[cyan]{result.target}[/cyan]")
 
     if result.chain:
         for i, name in enumerate(result.chain):
             prefix = "   ↓" if i < len(result.chain) - 1 else ""
-            console.print(f"   ↓")
-            console.print(f"depends on [cyan]{name}[/cyan]")
+            rich_console.print(f"   ↓")
+            rich_console.print(f"depends on [cyan]{name}[/cyan]")
 
     if result.root_cause:
-        console.print(f"\n[yellow]{result.root_cause}[/yellow]")
+        rich_console.print(f"\n[yellow]{result.root_cause}[/yellow]")
 
     if result.old_fingerprint:
-        console.print(f"\nOld fingerprint:\n  {result.old_fingerprint[:40]}...")
+        rich_console.print(f"\nOld fingerprint:\n  {result.old_fingerprint[:40]}...")
     if result.new_fingerprint:
-        console.print(f"\nNew fingerprint:\n  {result.new_fingerprint[:40]}...")
+        rich_console.print(f"\nNew fingerprint:\n  {result.new_fingerprint[:40]}...")
 
-    console.print(f"\n[bold]Therefore:[/bold]\n  {result.conclusion}")
+    rich_console.print(f"\n[bold]Therefore:[/bold]\n  {result.conclusion}")
 
 
 def print_graph_ascii(graph) -> None:
     """Print a simple ASCII dependency graph."""
     from aimake.ui.rendering import render_ascii_graph
 
-    console.print(render_ascii_graph(graph))
+    rich_console.print(render_ascii_graph(graph))
 
 
 def print_history_table(builds: list[dict]) -> None:
@@ -201,7 +221,7 @@ def print_history_table(builds: list[dict]) -> None:
             Text(status.upper(), style=status_style),
         )
 
-    console.print(table)
+    rich_console.print(table)
 
 
 def print_inspect(
@@ -212,29 +232,29 @@ def print_inspect(
     dependencies: list[str] | None = None,
     files: list[str] | None = None,
 ) -> None:
-    console.print("\n[bold]ARTIFACT[/bold]\n")
-    console.print(f"Name: [cyan]{name}[/cyan]")
-    console.print(f"Type: {artifact_type}")
-    console.print(f"Status: {state.status.value if state else 'unknown'}")
+    rich_console.print("\n[bold]ARTIFACT[/bold]\n")
+    rich_console.print(f"Name: [cyan]{name}[/cyan]")
+    rich_console.print(f"Type: {artifact_type}")
+    rich_console.print(f"Status: {state.status.value if state else 'unknown'}")
 
     if state and state.created_at:
-        console.print(f"\nCreated:\n  {state.created_at.strftime('%Y-%m-%d %H:%M')}")
+        rich_console.print(f"\nCreated:\n  {state.created_at.strftime('%Y-%m-%d %H:%M')}")
 
     if state and state.fingerprint:
-        console.print(f"\nFingerprint:\n  {state.fingerprint}")
+        rich_console.print(f"\nFingerprint:\n  {state.fingerprint}")
 
     if dependencies:
-        console.print(f"\nDependencies:\n  {', '.join(dependencies)}")
+        rich_console.print(f"\nDependencies:\n  {', '.join(dependencies)}")
 
     if files:
-        console.print("\nFiles:")
+        rich_console.print("\nFiles:")
         for f in files:
-            console.print(f"  {f}")
+            rich_console.print(f"  {f}")
 
     if state and state.duration:
-        console.print(f"\nExecution:\n  duration: {state.duration:.1f}s")
+        rich_console.print(f"\nExecution:\n  duration: {state.duration:.1f}s")
 
     if state and state.metrics:
-        console.print("\nMetrics:")
+        rich_console.print("\nMetrics:")
         for k, v in state.metrics.items():
-            console.print(f"  {k}: {v}")
+            rich_console.print(f"  {k}: {v}")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,10 @@ from aimake.models import ArtifactState, ArtifactStatus, GitInfo
 
 
 class StateDatabase:
-    """Persistent state storage using SQLite."""
+    """Persistent state storage using SQLite.
+
+    Uses thread-local connections so parallel builds can safely write metadata.
+    """
 
     SCHEMA = """
     CREATE TABLE IF NOT EXISTS artifacts (
@@ -74,20 +78,41 @@ class StateDatabase:
         self.aimake_dir = aimake_dir
         self.db_path = aimake_dir / STATE_DB
         self.aimake_dir.mkdir(parents=True, exist_ok=True)
-        self._conn: sqlite3.Connection | None = None
+        self._local = threading.local()
+        self._connections: list[sqlite3.Connection] = []
+        self._connections_lock = threading.Lock()
+
+    def _create_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            timeout=30.0,
+        )
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.executescript(self.SCHEMA)
+        with self._connections_lock:
+            self._connections.append(conn)
+        return conn
 
     @property
     def conn(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
-            self._conn.row_factory = sqlite3.Row
-            self._conn.executescript(self.SCHEMA)
-        return self._conn
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._create_connection()
+            self._local.conn = conn
+        return conn
 
     def close(self) -> None:
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        with self._connections_lock:
+            for conn in self._connections:
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    pass
+            self._connections.clear()
+        if hasattr(self._local, "conn"):
+            self._local.conn = None
 
     def get_artifact(self, name: str) -> ArtifactState | None:
         row = self.conn.execute(

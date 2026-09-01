@@ -14,8 +14,19 @@ build/
 venv/
 ENV/
 
-# aimake local state
+# aimake local state and generated outputs
 .aimake/
+aimake.lock
+
+# Project build outputs (when running examples or local init)
+examples/**/build/
+/build/
+
+# Local project scaffold from `aimake init` at repo root (use examples/rag/ instead)
+/aimake.yaml
+/data/
+/prompts/
+/src/
 
 # IDE
 .idea/
@@ -31,6 +42,3 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Project build outputs (when running examples)
-examples/**/build/

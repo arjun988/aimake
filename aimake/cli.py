@@ -15,6 +15,21 @@ from aimake.models import ArtifactStatus, BuildAction
 from aimake.project import Project
 from aimake.ui import console
 
+
+def _configure_stdout() -> None:
+    """Use UTF-8 on Windows so Rich can render symbols."""
+    if sys.platform == "win32":
+        for stream in (sys.stdout, sys.stderr):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if reconfigure is not None:
+                try:
+                    reconfigure(encoding="utf-8")
+                except Exception:
+                    pass
+
+
+_configure_stdout()
+
 app = typer.Typer(
     name="aimake",
     help="Incremental build system for AI applications.",
@@ -123,6 +138,14 @@ def build(
         if not result.success:
             if result.failed:
                 console.print_error(f"\nBuild failed on: {', '.join(result.failed)}")
+            # Surface per-artifact errors from the build log when available
+            from aimake.constants import LOGS_DIR
+            if result.build_id:
+                log_path = project.project_root / ".aimake" / LOGS_DIR / f"build-{result.build_id:03d}.log"
+                if log_path.is_file():
+                    for line in log_path.read_text(encoding="utf-8").splitlines():
+                        if line.startswith("FAILED "):
+                            console.print_error(line)
             project.close()
             raise typer.Exit(code=1)
 
@@ -148,12 +171,12 @@ def plan(
         plan = project.plan(targets)
         for entry in plan.entries:
             if entry.action == BuildAction.SKIP:
-                symbol = "✓ cached"
+                symbol = console.SYMBOL_CACHED
             elif entry.action == BuildAction.RUN:
-                symbol = "→ rebuild"
+                symbol = console.SYMBOL_REBUILD
             else:
-                symbol = "↻ restore"
-            console.console.print(f"  {entry.name:<20} {symbol}")
+                symbol = console.SYMBOL_RESTORE
+            console.print(f"  {entry.name:<20} {symbol}")
 
         project.close()
     except ConfigError as e:
@@ -185,7 +208,7 @@ def status(
             color = "green" if s in (ArtifactStatus.UP_TO_DATE, ArtifactStatus.CACHED) else (
                 "yellow" if s == ArtifactStatus.CHANGED else "red"
             )
-            console.console.print(f"  {name:<20} [{color}]{label}[/{color}]")
+            console.print(f"  {name:<20} [{color}]{label}[/{color}]")
 
         project.close()
     except ConfigError as e:
@@ -284,7 +307,7 @@ def inspect(
             files=info["files"],
         )
         if info["size_bytes"]:
-            console.console.print(f"\nSize:\n  {fmt_size(info['size_bytes'])}")
+            console.print(f"\nSize:\n  {fmt_size(info['size_bytes'])}")
 
         project.close()
     except (ConfigError, ValueError) as e:

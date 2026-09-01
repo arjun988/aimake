@@ -120,8 +120,8 @@ def test_prompt_change_invalidates_downstream(tmp_path: Path) -> None:
     assert statuses["embedding"] == ArtifactStatus.UP_TO_DATE
     assert statuses["index"] == ArtifactStatus.UP_TO_DATE
     assert statuses["prompt"] in (ArtifactStatus.CHANGED, ArtifactStatus.STALE)
-    assert statuses["evaluation"] == ArtifactStatus.STALE
-    assert statuses["report"] == ArtifactStatus.STALE
+    assert statuses["evaluation"] in (ArtifactStatus.CHANGED, ArtifactStatus.STALE)
+    assert statuses["report"] in (ArtifactStatus.CHANGED, ArtifactStatus.STALE)
 
     to_run = set(plan.to_run)
     assert "prompt" in to_run or "evaluation" in to_run

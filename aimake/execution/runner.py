@@ -248,6 +248,8 @@ class BuildRunner:
                 reused=plan.to_skip + plan.to_restore,
             )
 
+        import threading
+
         git_info = get_git_info(self.project_root)
         self._build_id = self.db.start_build(git_info)
         self._setup_log()
@@ -256,6 +258,7 @@ class BuildRunner:
         reused: list[str] = []
         failed: list[str] = []
         changed: list[str] = []
+        result_lock = threading.Lock()
 
         stored = self.cache.get_stored_fingerprints()
 
@@ -266,13 +269,15 @@ class BuildRunner:
 
             try:
                 if entry.action == BuildAction.SKIP:
-                    reused.append(name)
+                    with result_lock:
+                        reused.append(name)
                     return ScheduleResult(name=name, success=True)
 
                 if entry.action == BuildAction.RESTORE:
                     if self.cache.restore(name, fp, node.config.outputs):
                         self._log(f"RESTORED {name} from cache")
-                        reused.append(name)
+                        with result_lock:
+                            reused.append(name)
                         return ScheduleResult(name=name, success=True)
 
                 # Run command for passive source artifacts or active commands
@@ -333,17 +338,21 @@ class BuildRunner:
                     )
 
                 if stored.get(name) != fp:
-                    changed.append(name)
-                rebuilt.append(name)
+                    with result_lock:
+                        changed.append(name)
+                with result_lock:
+                    rebuilt.append(name)
                 self._log(f"BUILT {name}")
                 return ScheduleResult(name=name, success=True)
 
             except ExecutionError as e:
-                failed.append(name)
+                with result_lock:
+                    failed.append(name)
                 self._log(f"FAILED {name}: {e.stderr}")
                 return ScheduleResult(name=name, success=False, error=e.stderr)
             except Exception as e:
-                failed.append(name)
+                with result_lock:
+                    failed.append(name)
                 self._log(f"FAILED {name}: {e}")
                 return ScheduleResult(name=name, success=False, error=str(e))
 

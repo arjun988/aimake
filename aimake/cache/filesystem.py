@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
+import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,30 @@ class FilesystemCache:
     def __init__(self, aimake_dir: Path) -> None:
         self.cache_dir = aimake_dir / CACHE_DIR
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._cleanup_stale_tmp_dirs()
+
+    def _cleanup_stale_tmp_dirs(self) -> None:
+        if not self.cache_dir.exists():
+            return
+        for item in self.cache_dir.iterdir():
+            if item.is_dir() and item.name.startswith(".tmp-"):
+                shutil.rmtree(item, ignore_errors=True)
+
+    def _replace_dir(self, src: Path, dest: Path) -> None:
+        """Atomically replace dest with src (cross-platform)."""
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+            if sys.platform == "win32":
+                for _ in range(10):
+                    if not dest.exists():
+                        break
+                    time.sleep(0.05)
+
+        if sys.platform == "win32":
+            shutil.move(str(src), str(dest))
+        else:
+            src.rename(dest)
 
     def _entry_dir(self, fingerprint: str) -> Path:
         return self.cache_dir / strip_prefix(fingerprint)
@@ -49,45 +76,46 @@ class FilesystemCache:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Store artifact outputs in cache with atomic write."""
-        entry = self._entry_dir(fingerprint)
-        tmp = self.cache_dir / f".tmp-{uuid.uuid4().hex[:12]}"
+        with self._lock:
+            entry = self._entry_dir(fingerprint)
+            if entry.exists() and self.has(fingerprint):
+                return
 
-        try:
-            tmp.mkdir(parents=True)
-            artifacts_dir = tmp / "artifacts"
-            artifacts_dir.mkdir()
+            tmp = self.cache_dir / f".tmp-{uuid.uuid4().hex[:12]}"
 
-            stored_outputs: list[str] = []
-            for output in outputs:
-                src = project_root / output
-                if src.exists():
-                    dest = artifacts_dir / output.replace("/", "_").replace("\\", "_")
-                    if src.is_dir():
-                        shutil.copytree(src, dest, dirs_exist_ok=True)
-                    else:
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dest)
-                    stored_outputs.append(output)
+            try:
+                tmp.mkdir(parents=True)
+                artifacts_dir = tmp / "artifacts"
+                artifacts_dir.mkdir()
 
-            meta = {
-                "fingerprint": fingerprint,
-                "artifact": artifact_name,
-                "outputs": stored_outputs,
-                "command": command,
-                "duration": duration,
-                "metadata": metadata or {},
-            }
-            with open(tmp / "metadata.json", "w", encoding="utf-8") as f:
-                json.dump(meta, f, indent=2)
+                stored_outputs: list[str] = []
+                for output in outputs:
+                    src = project_root / output
+                    if src.exists():
+                        dest = artifacts_dir / output.replace("/", "_").replace("\\", "_")
+                        if src.is_dir():
+                            shutil.copytree(src, dest, dirs_exist_ok=True)
+                        else:
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src, dest)
+                        stored_outputs.append(output)
 
-            # Atomic rename
-            if entry.exists():
-                shutil.rmtree(entry)
-            tmp.rename(entry)
-        except Exception:
-            if tmp.exists():
-                shutil.rmtree(tmp, ignore_errors=True)
-            raise
+                meta = {
+                    "fingerprint": fingerprint,
+                    "artifact": artifact_name,
+                    "outputs": stored_outputs,
+                    "command": command,
+                    "duration": duration,
+                    "metadata": metadata or {},
+                }
+                with open(tmp / "metadata.json", "w", encoding="utf-8") as f:
+                    json.dump(meta, f, indent=2)
+
+                self._replace_dir(tmp, entry)
+            except Exception:
+                if tmp.exists():
+                    shutil.rmtree(tmp, ignore_errors=True)
+                raise
 
     def restore(
         self,
