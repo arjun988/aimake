@@ -208,7 +208,11 @@ def print_history_table(builds: list[dict]) -> None:
 
         duration = build.get("duration")
         dur_str = f"{duration:.1f}s" if duration else "?"
-        changed = json.loads(build.get("changed_artifacts") or "[]")
+        changed_raw = build.get("changed_artifacts") or "[]"
+        if isinstance(changed_raw, list):
+            changed = changed_raw
+        else:
+            changed = json.loads(changed_raw)
         changed_str = ", ".join(changed[:3]) if changed else "-"
         status = build.get("status", "?")
         status_style = "green" if status == "success" else "red"
@@ -306,7 +310,7 @@ def print_cache_status(status: dict) -> None:
 def print_registry(entries) -> None:
     """Print artifact registry entries."""
     if not entries:
-        rich_console.print_info("Registry is empty.")
+        print_info("Registry is empty.")
         return
     table = Table(show_header=True, header_style="bold")
     table.add_column("Artifact")
@@ -329,6 +333,7 @@ def print_registry(entries) -> None:
     rich_console.print(table)
 
 
+def print_workers_status(status: dict) -> None:
     rich_console.print("\n[bold]WORKERS & GPUs[/bold]\n")
     gpus = status.get("gpus_detected", [])
     if gpus:
@@ -432,21 +437,21 @@ def print_optimization_result(result) -> None:
                 f"{k}={_fmt_num(v)}" for k, v in trial.objective_values.items()
             )
             rich_console.print(f"  Trial #{trial.trial_number}: {objs}")
-    else:
-        rich_console.print_warning("No successful trials with objective values")
+    elif not all(t.build_id is None for t in result.trials):
+        print_warning("No successful trials with objective values")
 
     if result.stopped_early:
-        rich_console.print_info("Stopped early (no improvement within patience window)")
+        print_info("Stopped early (no improvement within patience window)")
     if result.pruned_trials:
-        rich_console.print_info(f"Pruned trials: {result.pruned_trials}")
+        print_info(f"Pruned trials: {result.pruned_trials}")
     if result.mlflow_run_id:
-        rich_console.print_info(f"MLflow run: {result.mlflow_run_id}")
+        print_info(f"MLflow run: {result.mlflow_run_id}")
 
 
 def print_experiments(experiments: list[dict]) -> None:
     """Print experiment list."""
     if not experiments:
-        rich_console.print_info("No experiments yet. Run 'aimake optimize'.")
+        print_info("No experiments yet. Run 'aimake optimize'.")
         return
 
     table = Table(show_header=True, header_style="bold")

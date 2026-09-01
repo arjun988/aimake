@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-01
+
 ### Added
 - Persistent file-hash cache (SQLite) to skip re-hashing unchanged files
 - Rich artifact diffs with stored snapshots (prompt unified diff, dataset row/sample diff, model parameter diff)
@@ -15,30 +17,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Distributed workers via SSH (`workers` config, `aimake workers`)
 - `aimake diff` command with `--baseline stored|lock|current`
 - Artifact snapshots captured on every successful build
-- Hardening test suite: force rebuild, targeted builds, corrupted cache, missing outputs, diff integration
 - Experiment comparison (`aimake compare`) across build history
-- Automatic hyperparameter optimization (`aimake optimize`) with grid/random search
+- Automatic hyperparameter optimization (`aimake optimize`) with grid/random/Bayesian search
 - `aimake experiments list|show` for optimization run history
 - `optimization` block in `aimake.yaml` (search_space, objective, parameter_artifact)
 - Trial parameters injected as `AIMAKE_PARAM_*` environment variables during builds
-- SQLite `experiments` and `experiment_trials` tables; build parameters stored per build
-- Bayesian/Optuna search (`strategy: bayesian` / `optuna`, requires `aimake[optuna]`)
-- Multi-objective Pareto optimization (`objective.metrics` + `directions`)
-- Early stopping (`optimization.early_stopping`: patience, min_trials, min_delta)
-- MLflow export (`optimization.mlflow`, requires `aimake[mlflow]`)
-- Hugging Face Hub plugin (`plugins.huggingface`, `aimake hf pull/push/status`, requires `aimake[huggingface]`)
+- Bayesian/Optuna search, multi-objective Pareto, early stopping, MLflow export
+- Hugging Face Hub plugin (`plugins.huggingface`, `aimake hf pull/push/status`)
 - Versioned artifact registry (`registry` config, `aimake registry list/show/promote/tag`)
-- Hyperband and successive-halving pruning (`optimization.pruning`)
-- Optuna multi-fidelity optimization with HyperbandPruner / SuccessiveHalvingPruner
+- Hyperband and successive-halving pruning with Optuna multi-fidelity support
+- Hardening test suite (91 tests)
 
 ### Changed
 - `Fingerprinter` uses persistent file-hash cache when `.aimake/state.db` is available
 - Diff engine compares against stored snapshots, not just fingerprints
-
-### Fixed
-- File-hash cache invalidates correctly when file content changes in-process (size/mtime-aware memory cache)
 - `compute_statuses()` auto-computes fingerprints when needed
 - `plan()` supports `targets=` for subgraph planning
+
+### Fixed
+- File-hash cache invalidates correctly on in-process content changes
+- CLI history table handles normalized build rows
+- Console helpers for workers, registry, and optimization output
 
 ## [0.1.0] - 2026-09-01
 
@@ -46,19 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: incremental build system for AI/ML pipelines
 - CLI: `init`, `build`, `plan`, `status`, `graph`, `clean`, `history`, `inspect`, `explain`, `doctor`, `eval`, `logs`
 - Content-addressable local cache (SQLite + filesystem)
-- SHA-256 fingerprinting for files, directories, and artifacts
-- Dependency DAG with parallel execution (`--jobs`)
+- SHA-256 fingerprinting, dependency DAG, parallel execution
 - AI artifact types: dataset, model, prompt, embedding, vector_index, evaluation, report
 - Quality gates for CI (`aimake eval --check`)
-- Git metadata in build history
-- `aimake.lock` for logical reproducibility
+- Git metadata in build history, `aimake.lock` for logical reproducibility
 - Example RAG pipeline in `examples/rag/`
 - Python API: `Project.load()`, `.build()`, `.plan()`, `.explain()`
-- Plugin interface (stub for future integrations)
 
 ### Fixed
 - Thread-safe SQLite for parallel builds
 - Windows-compatible cache atomic writes and console UTF-8 output
 
-[Unreleased]: https://github.com/aimake/aimake/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/aimake/aimake/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/aimake/aimake/releases/tag/v1.0.0
 [0.1.0]: https://github.com/aimake/aimake/releases/tag/v0.1.0
