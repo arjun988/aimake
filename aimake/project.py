@@ -32,6 +32,7 @@ from aimake.models import ArtifactStatus, BuildPlan, BuildResult, ExplainResult
 from aimake.diff.engine import DiffEngine
 from aimake.diff.snapshots import extract_snapshot
 from aimake.scheduling.resources import GPUDetector
+from aimake.plugins.loader import load_plugins
 
 
 class Project:
@@ -54,6 +55,7 @@ class Project:
 
         self.graph = Graph.from_config(config)
         self.cache = Cache(self.aimake_dir, self.project_root, config)
+        self.plugin_manager = load_plugins(config, self.project_root)
         self._runner: BuildRunner | None = None
 
     @classmethod
@@ -110,6 +112,7 @@ class Project:
                 jobs=self.config.project.jobs,
                 debug=self.debug,
                 verbose=self.verbose,
+                plugin_manager=self.plugin_manager,
             )
         return self._runner
 
@@ -435,7 +438,54 @@ class Project:
             jobs=jobs or self.config.project.jobs,
             debug=self.debug,
             verbose=self.verbose,
+            plugin_manager=self.plugin_manager,
         )
+
+    def hf_pull(self, artifact: str) -> Path:
+        """Pull an artifact from the Hugging Face Hub."""
+        from aimake.plugins.huggingface import HuggingFacePlugin
+
+        plugin = self._require_hf_plugin()
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+        node = self.graph.get(artifact)
+        return plugin.pull(node.config, artifact_name=artifact)
+
+    def hf_push(self, artifact: str) -> str:
+        """Push an artifact to the Hugging Face Hub."""
+        plugin = self._require_hf_plugin()
+        if artifact not in self.graph:
+            raise ValueError(f"Unknown artifact: '{artifact}'")
+        node = self.graph.get(artifact)
+        state = self.cache.get_artifact_state(artifact)
+        metadata = state.metadata if state else node.config.metadata
+        return plugin.push(node.config, artifact_name=artifact, metadata=metadata)
+
+    def hf_status(self, artifact: str | None = None) -> dict[str, Any]:
+        """Return Hugging Face linkage status for one or all artifacts."""
+        plugin = self._require_hf_plugin()
+        if artifact:
+            if artifact not in self.graph:
+                raise ValueError(f"Unknown artifact: '{artifact}'")
+            return {artifact: plugin.status(self.graph.get(artifact).config)}
+        result: dict[str, Any] = {}
+        for node in self.graph:
+            status = plugin.status(node.config)
+            if status.get("linked"):
+                result[node.name] = status
+        return result
+
+    def _require_hf_plugin(self):
+        from aimake.plugins.huggingface import HuggingFacePlugin
+
+        plugin = self.plugin_manager.get("huggingface")
+        if plugin is None or not isinstance(plugin, HuggingFacePlugin):
+            raise ValueError(
+                "Hugging Face plugin is not enabled. "
+                "Add 'plugins.huggingface.enabled: true' to aimake.yaml "
+                "and install aimake[huggingface]."
+            )
+        return plugin
 
     def close(self) -> None:
         self.cache.close()

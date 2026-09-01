@@ -27,6 +27,7 @@ from aimake.models import (
 from aimake.state.database import StateDatabase
 from aimake.scheduling.resources import ResourcePool
 from aimake.scheduling.workers import WorkerPool
+from aimake.plugins.base import PluginManager
 
 
 class BuildRunner:
@@ -42,6 +43,7 @@ class BuildRunner:
         jobs: int = 0,
         debug: bool = False,
         verbose: bool = False,
+        plugin_manager: PluginManager | None = None,
     ) -> None:
         self.project_root = project_root
         self.config = config
@@ -50,6 +52,7 @@ class BuildRunner:
         self.jobs = jobs or config.project.jobs
         self.debug = debug
         self.verbose = verbose
+        self.plugin_manager = plugin_manager or PluginManager()
 
         self.resource_pool = ResourcePool(config.project.gpus)
         self.worker_pool = WorkerPool(config.workers)
@@ -281,8 +284,8 @@ class BuildRunner:
             worker_pool=self.worker_pool,
         )
 
+        self._resolve_missing_hf_sources(graph)
         self.compute_fingerprints()
-        self.compute_statuses(force=force)
         plan = self.plan(force=force)
 
         if dry_run:
@@ -304,6 +307,14 @@ class BuildRunner:
             trial_number=trial_number,
         )
         self._setup_log()
+        self._emit_plugins(
+            "on_build_start",
+            {
+                "project_root": self.project_root,
+                "build_id": self._build_id,
+                "graph": graph,
+            },
+        )
 
         rebuilt: list[str] = []
         reused: list[str] = []
@@ -331,9 +342,32 @@ class BuildRunner:
                             reused.append(name)
                         return ScheduleResult(name=name, success=True)
 
+                self._emit_plugins(
+                    "on_pre_artifact",
+                    self._artifact_context(
+                        name,
+                        node,
+                        fp,
+                        graph,
+                        rebuilding=entry.action == BuildAction.RUN,
+                    ),
+                )
+
                 # Run command for passive source artifacts or active commands
                 if node.is_passive:
-                    self._handle_passive(node, fp)
+                    metadata = self._build_metadata(node)
+                    self._handle_passive(node, fp, metadata=metadata)
+                    self._emit_plugins(
+                        "on_artifact_complete",
+                        self._artifact_context(
+                            name,
+                            node,
+                            fp,
+                            graph,
+                            success=True,
+                            metadata=metadata,
+                        ),
+                    )
                 elif node.config.command:
                     gpu_indices: list[int] = []
                     worker_state = None
@@ -419,6 +453,7 @@ class BuildRunner:
                     )
 
                     metrics = self._parse_metrics(node)
+                    metadata = self._build_metadata(node)
                     self.cache.store(
                         name,
                         fp,
@@ -426,15 +461,41 @@ class BuildRunner:
                         command=node.config.command,
                         outputs=node.config.outputs,
                         duration=record.duration,
-                        metadata=self._build_metadata(node),
+                        metadata=metadata,
                         metrics=metrics,
                     )
+                    self._emit_plugins(
+                        "on_artifact_complete",
+                        self._artifact_context(
+                            name,
+                            node,
+                            fp,
+                            graph,
+                            success=True,
+                            metadata=metadata,
+                            metrics=metrics,
+                            duration=record.duration,
+                        ),
+                    )
                 else:
+                    metadata = self._build_metadata(node)
                     self.cache.store(
                         name,
                         fp,
                         artifact_type=node.config.type,
                         outputs=node.config.outputs,
+                        metadata=metadata,
+                    )
+                    self._emit_plugins(
+                        "on_artifact_complete",
+                        self._artifact_context(
+                            name,
+                            node,
+                            fp,
+                            graph,
+                            success=True,
+                            metadata=metadata,
+                        ),
                     )
 
                 if stored.get(name) != fp:
@@ -492,9 +553,7 @@ class BuildRunner:
                 metrics=all_metrics,
             )
 
-        self._finalize_log()
-
-        return BuildResult(
+        build_result = BuildResult(
             build_id=self._build_id or 0,
             success=success,
             duration=duration,
@@ -507,6 +566,63 @@ class BuildRunner:
             git_branch=git_info.branch if git_info.available else None,
             git_dirty=git_info.dirty if git_info.available else None,
         )
+        self._emit_plugins(
+            "on_build_finish",
+            {
+                "project_root": self.project_root,
+                "build_id": self._build_id,
+                "result": build_result,
+            },
+        )
+
+        self._finalize_log()
+
+        return build_result
+
+    def _emit_plugins(self, event: str, context: dict[str, Any]) -> None:
+        if self.plugin_manager.plugins:
+            self.plugin_manager.emit(event, context)
+
+    def _artifact_context(
+        self,
+        name: str,
+        node,
+        fingerprint: str,
+        graph: Graph,
+        *,
+        rebuilding: bool = False,
+        success: bool = True,
+        metadata: dict[str, Any] | None = None,
+        metrics: dict[str, Any] | None = None,
+        duration: float | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "project_root": self.project_root,
+            "artifact": name,
+            "artifact_config": node.config,
+            "artifact_type": node.config.type,
+            "fingerprint": fingerprint,
+            "build_id": self._build_id,
+            "rebuilding": rebuilding,
+            "success": success,
+            "metadata": metadata or {},
+            "metrics": metrics or {},
+            "duration": duration,
+            "outputs": list(node.config.outputs),
+            "graph": graph,
+        }
+
+    def _resolve_missing_hf_sources(self, graph: Graph) -> None:
+        """Pull Hub assets when local source paths are missing."""
+        hf_plugin = self.plugin_manager.get("huggingface")
+        if hf_plugin is None:
+            return
+        for node in graph:
+            if hf_plugin.should_pull(node.config, rebuilding=False):
+                source = node.config.source
+                if source and not (self.project_root / source).exists():
+                    hf_plugin.pull(node.config, artifact_name=node.name)
+                    self._log(f"PULLED {node.name} from Hugging Face Hub")
 
     def _parameter_env(self, node) -> dict[str, str]:
         """Expose artifact and trial parameters as AIMAKE_PARAM_* env vars."""
@@ -520,14 +636,14 @@ class BuildRunner:
         snapshot = capture_snapshot(node.name, node.config, self.project_root)
         return merge_metadata_with_snapshot(node.config.metadata, snapshot)
 
-    def _handle_passive(self, node, fingerprint: str) -> None:
+    def _handle_passive(self, node, fingerprint: str, *, metadata: dict[str, Any] | None = None) -> None:
         """Handle passive artifacts (source-only, no command)."""
         self.cache.store(
             node.name,
             fingerprint,
             artifact_type=node.config.type,
             outputs=[node.config.source] if node.config.source else [],
-            metadata=self._build_metadata(node),
+            metadata=metadata or self._build_metadata(node),
         )
 
     def _parse_metrics(self, node) -> dict[str, Any]:

@@ -465,7 +465,43 @@ Uses build history stored in `.aimake/state.db` — metrics, git commit, and tri
 
 ---
 
-## Automatic optimization
+## Hugging Face plugin
+
+Pull models and datasets from the Hub as first-class artifacts:
+
+```yaml
+plugins:
+  huggingface:
+    enabled: true
+    token_env: HF_TOKEN      # optional, for private repos
+    auto_pull: true
+    auto_push: false
+
+artifacts:
+  embedder:
+    type: model
+    source: models/embedder
+    metadata:
+      huggingface:
+        repo_id: sentence-transformers/all-MiniLM-L6-v2
+        revision: main
+        repo_type: model
+        pull: true
+        push: false
+        push_repo_id: my-org/fine-tuned-embedder  # optional push target
+```
+
+```bash
+pip install aimake[huggingface]
+aimake hf pull embedder
+aimake hf push embedder
+aimake hf status
+aimake plugins
+```
+
+During `aimake build`, the plugin auto-pulls missing Hub assets and optionally pushes on completion when `push: true` or `auto_push: true`.
+
+---
 
 Define a search space in `aimake.yaml` and run end-to-end hyperparameter search:
 
@@ -592,7 +628,8 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 - **Done:** Remote S3 cache, GPU scheduling, distributed workers, artifact diffs
 - **Done:** Experiment comparison (`aimake compare`), automatic optimization (`aimake optimize`)
 - **Done:** Bayesian/Optuna search, multi-objective Pareto, MLflow export, early stopping
-- **Phase 2:** Web dashboard, artifact registry, Hugging Face plugins
+- **Done:** Hugging Face Hub plugin (`aimake hf pull/push/status`)
+- **Phase 2:** Web dashboard, artifact registry
 - **Phase 3:** Hyperband pruning, Optuna multi-fidelity, experiment dashboards
 - **Phase 4:** Optional `aimake cloud` (CLI remains fully local)
 

@@ -238,6 +238,22 @@ class MLflowConfig(BaseModel):
     registry_uri: str | None = None
 
 
+class HuggingFacePluginConfig(BaseModel):
+    """Hugging Face Hub plugin settings."""
+
+    enabled: bool = False
+    token_env: str = "HF_TOKEN"
+    cache_dir: str | None = None
+    auto_pull: bool = True
+    auto_push: bool = False
+
+
+class PluginsConfig(BaseModel):
+    """Third-party plugin configuration."""
+
+    huggingface: HuggingFacePluginConfig | None = None
+
+
 class OptimizationConfig(BaseModel):
     """Automatic hyperparameter optimization."""
 
@@ -281,6 +297,7 @@ class AimakeConfig(BaseModel):
     cache: CacheConfig = Field(default_factory=CacheConfig)
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
     optimization: OptimizationConfig | None = None
+    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     @model_validator(mode="after")
     def validate_artifacts(self) -> AimakeConfig:

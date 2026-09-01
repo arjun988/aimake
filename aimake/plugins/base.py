@@ -1,28 +1,31 @@
-"""Plugin interface for future integrations."""
+"""Plugin interface for aimake integrations."""
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any
 
 
 class AimakePlugin(ABC):
-    """Base class for aimake plugins."""
+    """Base class for aimake plugins.
+
+    Subclasses override only the hooks they need.
+    """
 
     name: str = "base"
     version: str = "0.0.0"
 
-    @abstractmethod
     def on_build_start(self, context: dict[str, Any]) -> None:
         """Called when a build starts."""
 
-    @abstractmethod
     def on_build_finish(self, context: dict[str, Any]) -> None:
         """Called when a build finishes."""
 
-    @abstractmethod
+    def on_pre_artifact(self, context: dict[str, Any]) -> None:
+        """Called before an artifact is built (pull remote sources, etc.)."""
+
     def on_artifact_complete(self, context: dict[str, Any]) -> None:
-        """Called when an artifact build completes."""
+        """Called when an artifact build completes (push, log, etc.)."""
 
 
 class PluginManager:
@@ -43,3 +46,9 @@ class PluginManager:
             method = getattr(plugin, event, None)
             if method and callable(method):
                 method(context)
+
+    def get(self, name: str) -> AimakePlugin | None:
+        for plugin in self._plugins:
+            if plugin.name == name:
+                return plugin
+        return None

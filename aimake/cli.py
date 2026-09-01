@@ -629,13 +629,104 @@ app.add_typer(experiments_app, name="experiments")
 
 
 @app.command()
-def plugins() -> None:
-    """List available plugins (future integrations)."""
-    console.print_header("PLUGINS")
-    console.print_info("No plugins installed.")
-    console.print_info("\nFuture integrations:")
-    for name in ("Hugging Face", "MLflow", "Weights & Biases", "DVC", "Docker", "Ollama"):
-        console.print_info(f"  • {name}")
+def plugins(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """List enabled plugins."""
+    try:
+        project = _load_project(config)
+        console.print_header("PLUGINS")
+        installed = project.plugin_manager.plugins
+        if installed:
+            for plugin in installed:
+                console.print_success(f"{plugin.name} v{plugin.version}")
+        else:
+            console.print_info("No plugins enabled.")
+
+        console.print_info("\nBuilt-in integrations:")
+        for name, extra, note in (
+            ("Hugging Face", "huggingface", "plugins.huggingface.enabled"),
+            ("MLflow", "mlflow", "optimization.mlflow.enabled"),
+            ("Optuna", "optuna", "optimization.strategy: bayesian"),
+            ("S3 cache", "s3", "cache.remote"),
+        ):
+            enabled = any(p.name == name.lower().replace(" ", "") for p in installed)
+            if name == "Hugging Face":
+                enabled = project.config.plugins.huggingface is not None and (
+                    project.config.plugins.huggingface.enabled
+                )
+            mark = "+" if enabled else "-"
+            console.print_info(f"  [{mark}] {name}  (pip install aimake[{extra}])  — {note}")
+
+        console.print_info("\nPlanned:")
+        for name in ("Weights & Biases", "DVC", "Docker", "Ollama"):
+            console.print_info(f"  • {name}")
+        project.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+hf_app = typer.Typer(help="Hugging Face Hub integration.")
+
+
+@hf_app.command("pull")
+def hf_pull(
+    artifact: str = typer.Argument(..., help="Artifact to pull from the Hub"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Download a model or dataset from Hugging Face Hub."""
+    try:
+        project = _load_project(config)
+        path = project.hf_pull(artifact)
+        console.print_success(f"Pulled {artifact} → {path}")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@hf_app.command("push")
+def hf_push(
+    artifact: str = typer.Argument(..., help="Artifact to push to the Hub"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Upload an artifact to Hugging Face Hub."""
+    try:
+        project = _load_project(config)
+        repo_id = project.hf_push(artifact)
+        console.print_success(f"Pushed {artifact} → {repo_id}")
+        project.close()
+    except (ConfigError, ValueError, ImportError, FileNotFoundError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@hf_app.command("status")
+def hf_status(
+    artifact: Optional[str] = typer.Argument(None, help="Artifact name (optional)"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+) -> None:
+    """Show Hugging Face Hub linkage for artifacts."""
+    try:
+        project = _load_project(config)
+        statuses = project.hf_status(artifact)
+        if not statuses:
+            console.print_info("No Hugging Face-linked artifacts found.")
+        else:
+            for name, info in statuses.items():
+                console.print(f"\n[bold cyan]{name}[/bold cyan]")
+                console.print(f"  repo:   {info.get('repo_id')}")
+                console.print(f"  rev:    {info.get('revision')}")
+                console.print(f"  type:   {info.get('repo_type')}")
+                console.print(f"  local:  {info.get('local_path')} ({'exists' if info.get('local_exists') else 'missing'})")
+        project.close()
+    except (ConfigError, ValueError, ImportError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+app.add_typer(hf_app, name="hf")
 
 
 def _load_project(
