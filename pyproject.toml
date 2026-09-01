@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aimake"
+version = "0.1.0"
+description = "An incremental build system for AI applications"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "aimake contributors" }]
+keywords = ["ai", "ml", "build", "incremental", "pipeline", "rag", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "pydantic>=2.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+]
+
+[project.scripts]
+aimake = "aimake.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/aimake/aimake"
+Documentation = "https://github.com/aimake/aimake#readme"
+Repository = "https://github.com/aimake/aimake"
+Issues = "https://github.com/aimake/aimake/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aimake"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["aimake"]

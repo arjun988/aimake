@@ -1,0 +1,5 @@
+{"id": "1", "text": "Machine learning enables computers to learn from data."}
+{"id": "2", "text": "Natural language processing helps machines understand text."}
+{"id": "3", "text": "Retrieval augmented generation combines search with LLMs."}
+{"id": "4", "text": "Vector databases store embeddings for similarity search."}
+{"id": "5", "text": "Incremental builds save time by skipping unchanged steps."}

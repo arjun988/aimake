@@ -1,0 +1,64 @@
+project:
+  name: rag-example
+  version: "1.0"
+
+artifacts:
+
+  dataset:
+    type: dataset
+    source: data/train.jsonl
+
+  preprocess:
+    type: dataset
+    depends_on:
+      - dataset
+    command: python src/preprocess.py
+    outputs:
+      - build/processed/
+
+  embeddings:
+    type: embedding
+    depends_on:
+      - preprocess
+    command: python src/embed.py
+    outputs:
+      - build/embeddings/
+
+  index:
+    type: vector_index
+    depends_on:
+      - embeddings
+    command: python src/build_index.py
+    outputs:
+      - build/index/
+
+  prompt:
+    type: prompt
+    source: prompts/system.txt
+
+  evaluation:
+    type: evaluation
+    depends_on:
+      - index
+      - prompt
+    command: python src/evaluate.py
+    outputs:
+      - build/evaluation/
+    metrics:
+      file: build/evaluation/results.json
+
+  report:
+    type: report
+    depends_on:
+      - evaluation
+    command: python src/report.py
+    outputs:
+      - build/report/
+
+quality_gates:
+  accuracy:
+    minimum: 0.80
+  latency_ms:
+    maximum: 1000
+  cost_usd:
+    maximum: 1.00

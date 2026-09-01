@@ -1,0 +1,24 @@
+"""aimake — incremental build system for AI applications."""
+
+import aimake.artifacts  # noqa: F401 — register artifact types
+
+from aimake.artifacts.base import Artifact
+from aimake.cache.store import Cache
+from aimake.graph.dag import Graph
+from aimake.hashing.fingerprint import Fingerprinter
+from aimake.models import ArtifactState, ArtifactStatus, BuildResult
+from aimake.project import Project
+
+__version__ = "0.1.0"
+
+__all__ = [
+    "Artifact",
+    "ArtifactState",
+    "ArtifactStatus",
+    "BuildResult",
+    "Cache",
+    "Fingerprinter",
+    "Graph",
+    "Project",
+    "__version__",
+]
