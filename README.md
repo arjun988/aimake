@@ -12,7 +12,7 @@
 
 *Like `make` + `git` + DVC — but designed for AI/ML pipelines.*
 
-[Installation](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Migration](#migration) · [Comparison](docs/COMPARISON.md) · [Adapters](docs/ADAPTERS.md)
+[Docs](website/README.md) · [Installation](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Migration](#migration) · [Comparison](docs/COMPARISON.md) · [Adapters](docs/ADAPTERS.md)
 
 </div>
 
@@ -156,6 +156,15 @@ aimake init --from=airflow-dag
 aimake watch              # re-plan on file changes
 aimake watch --build      # auto-rebuild stale steps
 ```
+
+### Documentation website
+
+```bash
+cd website
+npm install && npm run dev
+```
+
+Open http://localhost:3001 — full docs (concepts, CLI, SDKs, Docker, trust, team) with search, sidebar, and dark mode. See [website/README.md](website/README.md).
 
 ### Web dashboard
 

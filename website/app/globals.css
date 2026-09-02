@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-muted: #f4f7fb;
+  --border: #e2e8f0;
+  --ink: #0a1628;
+  --ink-soft: #1e293b;
+  --ink-muted: #64748b;
+}
+
+.dark {
+  color-scheme: dark;
+  --surface: #0a1628;
+  --surface-raised: #111d32;
+  --surface-muted: #0d1830;
+  --border: #1e2d4a;
+  --ink: #eef3f9;
+  --ink-soft: #cbd5e1;
+  --ink-muted: #94a3b8;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-surface text-ink antialiased;
+}
+
+::selection {
+  background: rgba(26, 115, 232, 0.22);
+}
+
+/* Landing atmosphere — subtle grid, not flat */
+.hero-grid {
+  background-image:
+    linear-gradient(to right, rgba(26, 115, 232, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(26, 115, 232, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, black 20%, transparent 75%);
+}
+
+.dark .hero-grid {
+  background-image:
+    linear-gradient(to right, rgba(75, 156, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(75, 156, 255, 0.08) 1px, transparent 1px);
+}
+
+/* Prose for docs */
+.docs-prose {
+  @apply text-[15px] leading-7 text-ink-soft;
+}
+
+.docs-prose h1 {
+  @apply mb-4 font-display text-3xl font-semibold tracking-tight text-ink md:text-4xl;
+}
+
+.docs-prose h2 {
+  @apply mb-3 mt-10 scroll-mt-28 border-b border-surface-border pb-2 font-display text-xl font-semibold tracking-tight text-ink;
+}
+
+.docs-prose h3 {
+  @apply mb-2 mt-8 scroll-mt-28 font-display text-lg font-semibold text-ink;
+}
+
+.docs-prose h4 {
+  @apply mb-2 mt-6 font-semibold text-ink;
+}
+
+.docs-prose p {
+  @apply mb-4;
+}
+
+.docs-prose ul {
+  @apply mb-4 list-disc space-y-1.5 pl-5;
+}
+
+.docs-prose ol {
+  @apply mb-4 list-decimal space-y-1.5 pl-5;
+}
+
+.docs-prose li > ul,
+.docs-prose li > ol {
+  @apply mb-0 mt-1.5;
+}
+
+.docs-prose a {
+  @apply font-medium text-brand-600 underline decoration-brand-200 underline-offset-2 transition hover:decoration-brand-500 dark:text-brand-400 dark:decoration-brand-700;
+}
+
+.docs-prose strong {
+  @apply font-semibold text-ink;
+}
+
+.docs-prose blockquote {
+  @apply my-4 border-l-2 border-brand-500 bg-brand-50/60 py-2 pl-4 pr-3 text-ink-soft dark:bg-brand-500/10;
+}
+
+.docs-prose code {
+  @apply rounded bg-surface-muted px-1.5 py-0.5 font-mono text-[13px] text-brand-700 dark:text-brand-400;
+}
+
+.docs-prose pre {
+  @apply mb-4 overflow-x-auto rounded-lg border border-surface-border bg-[#0b1220] p-4 text-[13px] leading-6 text-slate-100 shadow-soft;
+}
+
+.docs-prose pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+
+.docs-prose table {
+  @apply mb-6 w-full border-collapse text-left text-sm;
+}
+
+.docs-prose thead {
+  @apply border-b border-surface-border text-[11px] font-semibold uppercase tracking-wide text-ink-muted;
+}
+
+.docs-prose th,
+.docs-prose td {
+  @apply px-3 py-2.5 align-top;
+}
+
+.docs-prose tbody tr {
+  @apply border-b border-surface-border;
+}
+
+.docs-prose hr {
+  @apply my-10 border-surface-border;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.dark * {
+  scrollbar-color: #334155 transparent;
+}

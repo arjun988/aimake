@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Documentation website:** Next.js + Tailwind site in `website/` (dev on port 3001) with detailed guides covering CLI, SDKs, Docker, trust, team, and more
+
 ## [1.7.0] - 2026-09-02
 
 ### Added
