@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from aimake.project import Project
+from aimake.policy import PolicyError
 
 
 def _json_default(obj: Any) -> Any:
@@ -190,15 +191,104 @@ class DashboardAPI:
                 for e in entries
             ],
             "enabled": self.project.config.registry.enabled,
+            "remote": (
+                {
+                    "type": self.project.config.registry.remote.type,
+                    "auto_push_on_promote": self.project.config.registry.remote.auto_push_on_promote,
+                }
+                if self.project.config.registry.remote
+                else None
+            ),
+            "policy": self._policy_summary(),
         }
 
-    def promote(self, artifact: str, version: str, stage: str) -> dict[str, Any]:
-        entry = self.project.registry_promote(artifact, version, stage)
+    def _policy_summary(self) -> dict[str, Any] | None:
+        if not self.project.config.policy or not self.project.config.policy.promote:
+            return None
+        p = self.project.config.policy.promote
         return {
+            "stages": p.stages,
+            "metrics": {
+                k: {"minimum": g.minimum, "maximum": g.maximum, "required": g.required}
+                for k, g in p.metrics.items()
+            },
+            "max_cost_usd": p.max_cost_usd,
+            "require_tag": p.require_tag,
+            "require_approval_env": p.require_approval_env,
+        }
+
+    def promote(
+        self,
+        artifact: str,
+        version: str,
+        stage: str,
+        *,
+        force: bool = False,
+        push: bool | None = None,
+    ) -> dict[str, Any]:
+        entry, push_result = self.project.registry_promote(
+            artifact, version, stage, force=force, push=push
+        )
+        payload: dict[str, Any] = {
             "artifact_name": entry.artifact_name,
             "version": entry.version,
             "stage": entry.stage,
             "tags": entry.tags,
+        }
+        if push_result:
+            payload["remote_push"] = {
+                "backend": push_result.backend,
+                "uri": push_result.uri,
+                "ok": push_result.ok,
+                "detail": push_result.detail,
+            }
+        return payload
+
+    def registry_push(self, artifact: str, version: str) -> dict[str, Any]:
+        result = self.project.registry_push(artifact, version)
+        return {
+            "backend": result.backend,
+            "uri": result.uri,
+            "ok": result.ok,
+            "detail": result.detail,
+        }
+
+    def policy_check(self, artifact: str, version: str, stage: str) -> dict[str, Any]:
+        violations = self.project.policy_check_promote(artifact, version, stage)
+        return {
+            "ok": len(violations) == 0,
+            "violations": [{"code": v.code, "message": v.message} for v in violations],
+        }
+
+    def settings(self) -> dict[str, Any]:
+        cfg = self.project.config
+        n = cfg.notifications
+        return {
+            "project": {
+                "name": cfg.project.name,
+                "version": cfg.project.version,
+                "root": str(self.project.project_root),
+            },
+            "cache": self._safe_cache_status(),
+            "registry": {
+                "enabled": cfg.registry.enabled,
+                "remote": (
+                    {"type": cfg.registry.remote.type}
+                    if cfg.registry.remote
+                    else None
+                ),
+            },
+            "policy": self._policy_summary(),
+            "notifications": {
+                "slack": bool(n and n.slack and n.slack.enabled),
+                "discord": bool(n and n.discord and n.discord.enabled),
+                "email": bool(n and n.email and n.email.enabled),
+            },
+            "schedule_jobs": list((cfg.schedule.jobs if cfg.schedule else {}).keys()),
+            "secrets": {
+                "dotenv": cfg.secrets.dotenv,
+                "providers": [p.type for p in cfg.secrets.providers],
+            },
         }
 
     def tag(self, artifact: str, version: str, tags: list[str]) -> dict[str, Any]:
@@ -235,7 +325,31 @@ class DashboardAPI:
 
     def _safe_cache_status(self) -> dict[str, Any]:
         try:
-            return self.project.cache_status()
+            status = self.project.cache_status()
+            # Normalize for dashboard: nest remote vs local-ish fields
+            team = status.get("team") or {}
+            return {
+                "local": {
+                    "entries": status.get("local_entries", 0),
+                    "enabled": True,
+                },
+                "remote": (
+                    {
+                        "enabled": status.get("enabled", False),
+                        "type": status.get("type"),
+                        "entries": status.get("remote_entries", 0),
+                        "synced": len(status.get("synced") or []),
+                        "only_local": len(status.get("only_local") or []),
+                        "only_remote": len(status.get("only_remote") or []),
+                        "team_id": team.get("team_id"),
+                        "bucket": team.get("bucket"),
+                        "prefix": team.get("prefix"),
+                    }
+                    if status.get("enabled")
+                    else None
+                ),
+                "raw": status,
+            }
         except Exception as e:
             return {"local": {}, "remote": None, "error": str(e)}
 
@@ -306,6 +420,17 @@ def create_handler(api: DashboardAPI) -> type[BaseHTTPRequestHandler]:
                     )
                 elif path == "/api/cache":
                     self._send(200, api.cache())
+                elif path == "/api/settings":
+                    self._send(200, api.settings())
+                elif path == "/api/policy/check":
+                    self._send(
+                        200,
+                        api.policy_check(
+                            qs.get("artifact", [""])[0],
+                            qs.get("version", [""])[0],
+                            qs.get("stage", ["production"])[0],
+                        ),
+                    )
                 else:
                     self._error(404, f"Not found: {path}")
             except ValueError as e:
@@ -326,19 +451,30 @@ def create_handler(api: DashboardAPI) -> type[BaseHTTPRequestHandler]:
 
             try:
                 if path == "/api/registry/promote":
-                    self._send(
-                        200,
-                        api.promote(
-                            body["artifact"],
-                            body["version"],
-                            body.get("stage", "production"),
-                        ),
-                    )
+                    try:
+                        self._send(
+                            200,
+                            api.promote(
+                                body["artifact"],
+                                body["version"],
+                                body.get("stage", "production"),
+                                force=bool(body.get("force", False)),
+                                push=body.get("push"),
+                            ),
+                        )
+                    except PolicyError as e:
+                        self._error(403, str(e))
+                        return
                 elif path == "/api/registry/tag":
                     tags = body.get("tags") or [body["tag"]]
                     self._send(
                         200,
                         api.tag(body["artifact"], body["version"], tags),
+                    )
+                elif path == "/api/registry/push":
+                    self._send(
+                        200,
+                        api.registry_push(body["artifact"], body["version"]),
                     )
                 else:
                     self._error(404, f"Not found: {path}")

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-02
+
+### Added
+- **Shared team cache (#12):** `cache.remote.team_id`, `aimake cache remote-init`, `aimake cache pull-lock`; `aimake.lock` v2 pins remote identity for CI/laptop sharing
+- **Registry remote (#13):** `registry.remote` (S3 / Hugging Face / W&B); `aimake registry push`; auto-push on promote
+- **Promote policy (#14):** `policy.promote` metric/cost/tag/approval gates; enforced in CLI + dashboard API
+- **Scheduled builds (#15):** `aimake schedule "0 6 * * *"` and named `schedule.jobs` in yaml
+- **Notifications (#16):** Slack / Discord / email on fail, quality gate, cost spike (`notifications:` + `aimake notify-test`)
+- **Monorepo (#17):** `aimake build --project=apps/rag` (and other commands via `-P`)
+- **Secrets (#18):** `.env` loading + Vault / Doppler / 1Password CLI providers (`secrets:` + `aimake secrets`)
+- Dashboard: Settings page, registry policy/remote push, normalized cache team view, `/api/settings` + `/api/policy/check`
+
 ## [1.4.0] - 2026-09-02
 
 ### Added

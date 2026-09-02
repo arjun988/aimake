@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aimake"
-version = "1.4.0"
+version = "1.5.0"
 description = "An incremental build system for AI applications"
 readme = "README.md"
 license = "Apache-2.0"

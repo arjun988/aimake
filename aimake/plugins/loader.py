@@ -42,4 +42,13 @@ def load_plugins(config: AimakeConfig, project_root: Path) -> PluginManager:
 
         manager.register(OllamaPlugin(ollama_cfg, project_root))
 
+    if config.notifications and (
+        (config.notifications.slack and config.notifications.slack.enabled)
+        or (config.notifications.discord and config.notifications.discord.enabled)
+        or (config.notifications.email and config.notifications.email.enabled)
+    ):
+        from aimake.plugins.notify_plugin import NotifyPlugin
+
+        manager.register(NotifyPlugin(config, project_root))
+
     return manager

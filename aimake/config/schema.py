@@ -139,6 +139,7 @@ class RemoteCacheConfig(BaseModel):
     s3: S3CacheConfig | None = None
     auto_pull: bool = True
     auto_push: bool = True
+    team_id: str | None = None  # shared org prefix: {prefix}/{team_id}/...
 
     @model_validator(mode="after")
     def validate_remote(self) -> RemoteCacheConfig:
@@ -151,6 +152,160 @@ class CacheConfig(BaseModel):
     """Cache configuration."""
 
     remote: RemoteCacheConfig | None = None
+    write_lock: bool = True  # commit aimake.lock for shared team cache pinning
+
+
+class RegistryRemoteS3Config(BaseModel):
+    """Push promoted artifacts to S3."""
+
+    bucket: str
+    prefix: str = "aimake/registry/"
+    region: str | None = None
+    endpoint_url: str | None = None
+
+
+class RegistryRemoteHFConfig(BaseModel):
+    """Push promoted artifacts to Hugging Face Hub."""
+
+    repo_id: str
+    token_env: str = "HF_TOKEN"
+    private: bool = True
+
+
+class RegistryRemoteWandbConfig(BaseModel):
+    """Push promoted artifacts to W&B Model Registry / Artifacts."""
+
+    entity: str | None = None
+    project: str | None = None
+    api_key_env: str = "WANDB_API_KEY"
+    type: str = "model"
+
+
+class RegistryRemoteConfig(BaseModel):
+    """Remote backends for registry push on promote."""
+
+    type: str = "s3"  # s3 | huggingface | wandb
+    s3: RegistryRemoteS3Config | None = None
+    huggingface: RegistryRemoteHFConfig | None = None
+    wandb: RegistryRemoteWandbConfig | None = None
+    auto_push_on_promote: bool = True
+
+    @model_validator(mode="after")
+    def validate_registry_remote(self) -> RegistryRemoteConfig:
+        t = self.type.lower()
+        if t not in ("s3", "huggingface", "wandb"):
+            raise ValueError("registry.remote.type must be s3, huggingface, or wandb")
+        self.type = t
+        if t == "s3" and self.s3 is None:
+            raise ValueError("registry.remote.type 's3' requires an 's3' block")
+        if t == "huggingface" and self.huggingface is None:
+            raise ValueError("registry.remote.type 'huggingface' requires a 'huggingface' block")
+        if t == "wandb" and self.wandb is None:
+            raise ValueError("registry.remote.type 'wandb' requires a 'wandb' block")
+        return self
+
+
+class PromotePolicyConfig(BaseModel):
+    """Gates that must pass before promoting to a stage."""
+
+    stages: list[str] = Field(default_factory=lambda: ["production"])
+    metrics: dict[str, QualityGateConfig] = Field(default_factory=dict)
+    max_cost_usd: float | None = None
+    require_tag: str | None = None
+    require_approval_env: str | None = None  # e.g. AIMAKE_APPROVE_PROD=1
+
+
+class PolicyConfig(BaseModel):
+    """Org policies for promote and cost."""
+
+    promote: PromotePolicyConfig | None = None
+    cost_spike_usd: float | None = None  # notify when plan/build cost exceeds this
+
+
+class SlackNotifyConfig(BaseModel):
+    """Slack incoming webhook notifications."""
+
+    enabled: bool = False
+    webhook_env: str = "SLACK_WEBHOOK_URL"
+    on_fail: bool = True
+    on_quality_gate: bool = True
+    on_cost_spike: bool = True
+    on_success: bool = False
+
+
+class DiscordNotifyConfig(BaseModel):
+    """Discord webhook notifications."""
+
+    enabled: bool = False
+    webhook_env: str = "DISCORD_WEBHOOK_URL"
+    on_fail: bool = True
+    on_quality_gate: bool = True
+    on_cost_spike: bool = True
+    on_success: bool = False
+
+
+class EmailNotifyConfig(BaseModel):
+    """SMTP email notifications."""
+
+    enabled: bool = False
+    smtp_host: str = "localhost"
+    smtp_port: int = 587
+    smtp_user_env: str | None = None
+    smtp_password_env: str | None = None
+    from_addr: str = "aimake@localhost"
+    to_addrs: list[str] = Field(default_factory=list)
+    use_tls: bool = True
+    on_fail: bool = True
+    on_quality_gate: bool = True
+    on_cost_spike: bool = True
+    on_success: bool = False
+
+
+class NotificationsConfig(BaseModel):
+    """Outbound notifications for build lifecycle events."""
+
+    slack: SlackNotifyConfig | None = None
+    discord: DiscordNotifyConfig | None = None
+    email: EmailNotifyConfig | None = None
+
+
+class ScheduleJobConfig(BaseModel):
+    """A named scheduled build job (also usable from CLI cron)."""
+
+    cron: str
+    targets: list[str] = Field(default_factory=list)
+    force: bool = False
+    enabled: bool = True
+
+
+class ScheduleConfig(BaseModel):
+    """Optional in-yaml schedule definitions."""
+
+    jobs: dict[str, ScheduleJobConfig] = Field(default_factory=dict)
+
+
+class SecretsProviderConfig(BaseModel):
+    """External secrets provider (CLI-backed)."""
+
+    type: str  # vault | doppler | onepassword | env
+    # vault
+    addr_env: str = "VAULT_ADDR"
+    token_env: str = "VAULT_TOKEN"
+    path: str | None = None
+    # doppler
+    project: str | None = None
+    config: str | None = None
+    # 1password
+    vault: str | None = None
+    item: str | None = None
+
+
+class SecretsConfig(BaseModel):
+    """Load secrets into the process environment before builds."""
+
+    dotenv: bool = True
+    dotenv_path: str | None = None  # default: .env in project root
+    providers: list[SecretsProviderConfig] = Field(default_factory=list)
 
 
 class WorkerConfig(BaseModel):
@@ -346,6 +501,7 @@ class RegistryConfig(BaseModel):
     enabled: bool = False
     auto_register: bool = True
     default_stage: str = "dev"
+    remote: RegistryRemoteConfig | None = None
 
     @field_validator("default_stage")
     @classmethod
@@ -440,6 +596,10 @@ class AimakeConfig(BaseModel):
     optimization: OptimizationConfig | None = None
     plugins: PluginsConfig = Field(default_factory=PluginsConfig)
     registry: RegistryConfig = Field(default_factory=RegistryConfig)
+    policy: PolicyConfig | None = None
+    notifications: NotificationsConfig | None = None
+    schedule: ScheduleConfig | None = None
+    secrets: SecretsConfig = Field(default_factory=SecretsConfig)
 
     @model_validator(mode="after")
     def validate_artifacts(self) -> AimakeConfig:

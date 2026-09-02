@@ -15,6 +15,8 @@ from aimake.models import ArtifactStatus, BuildAction
 from aimake.project import Project
 from aimake.ui import console
 
+_PROJECT_HELP = "Monorepo subproject path (e.g. apps/rag) containing aimake.yaml"
+
 
 def _configure_stdout() -> None:
     """Use UTF-8 on Windows so Rich can render symbols."""
@@ -100,25 +102,26 @@ def build(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     debug: bool = typer.Option(False, "--debug", help="Debug output"),
     config: Optional[Path] = typer.Option(None, "--config", "-c", help="Config file path"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
 ) -> None:
     """Build the dependency graph incrementally."""
     try:
-        project = _load_project(config, debug=debug, verbose=verbose)
+        proj = _load_project(config, project=project, debug=debug, verbose=verbose)
         console.print_header()
         console.print_info("Loading project...")
         console.print_success("Configuration loaded")
 
         force_targets = set(targets or []) if force else set()
         if force and not targets:
-            force_targets = set(project.graph.names())
+            force_targets = set(proj.graph.names())
 
         console.print_info("\nBuilding dependency graph...")
-        statuses = project.status(targets)
-        for name in project.graph.names() if not targets else targets:
+        statuses = proj.status(targets)
+        for name in proj.graph.names() if not targets else targets:
             if name in statuses:
                 console.print(f"  {name:<25} {console.status_label(statuses[name])}")
 
-        plan = project.plan(targets, force=list(force_targets) if force else None)
+        plan = proj.plan(targets, force=list(force_targets) if force else None)
         console.print_build_plan(plan)
 
         if dry_run:
@@ -129,21 +132,12 @@ def build(
             console.print("\n[bold]Would reuse:[/bold]")
             for name in plan.to_skip + plan.to_restore:
                 console.print(f"  {name}")
-            project.close()
+            proj.close()
             return
 
         console.print("\n[bold]Executing...[/bold]\n")
 
-        def on_start(name: str) -> None:
-            pass
-
-        def on_complete(result) -> None:
-            if result.success:
-                console.print_success(result.name)
-            else:
-                console.print_error(f"{result.name}: {result.error}")
-
-        result = project.build(
+        result = proj.build(
             targets=targets,
             force=list(force_targets) if force else None,
             jobs=jobs if jobs > 0 else None,
@@ -157,18 +151,23 @@ def build(
         if not result.success:
             if result.failed:
                 console.print_error(f"\nBuild failed on: {', '.join(result.failed)}")
-            # Surface per-artifact errors from the build log when available
             from aimake.constants import LOGS_DIR
+
             if result.build_id:
-                log_path = project.project_root / ".aimake" / LOGS_DIR / f"build-{result.build_id:03d}.log"
+                log_path = (
+                    proj.project_root
+                    / ".aimake"
+                    / LOGS_DIR
+                    / f"build-{result.build_id:03d}.log"
+                )
                 if log_path.is_file():
                     for line in log_path.read_text(encoding="utf-8").splitlines():
                         if line.startswith("FAILED "):
                             console.print_error(line)
-            project.close()
+            proj.close()
             raise typer.Exit(code=1)
 
-        project.close()
+        proj.close()
 
     except ConfigError as e:
         console.print_error(str(e))
@@ -179,16 +178,23 @@ def build(
 def plan(
     targets: Optional[list[str]] = typer.Argument(None, help="Specific targets"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
     debug: bool = typer.Option(False, "--debug"),
     format: str = typer.Option("text", "--format", "-f", help="Output: text or json"),
 ) -> None:
     """Show what would happen without executing."""
     try:
-        project = _load_project(config, debug=debug)
-        plan = project.plan(targets)
-
+        proj = _load_project(config, project=project, debug=debug)
+        plan_obj = proj.plan(targets)
         if format == "json":
+            import json as _json
+
             payload = {
+                "to_run": plan_obj.to_run,
+                "to_skip": plan_obj.to_skip,
+                "to_restore": plan_obj.to_restore,
+                "estimated_total_cost_usd": plan_obj.estimated_total_cost_usd,
+                "estimated_total_tokens": plan_obj.estimated_total_tokens,
                 "entries": [
                     {
                         "name": e.name,
@@ -198,39 +204,13 @@ def plan(
                         "estimated_cost_usd": e.estimated_cost_usd,
                         "estimated_tokens": e.estimated_tokens,
                     }
-                    for e in plan.entries
+                    for e in plan_obj.entries
                 ],
-                "to_run": plan.to_run,
-                "to_skip": plan.to_skip,
-                "to_restore": plan.to_restore,
-                "estimated_total_cost_usd": plan.estimated_total_cost_usd,
-                "estimated_total_tokens": plan.estimated_total_tokens,
             }
-            typer.echo(json.dumps(payload, indent=2))
-            project.close()
-            return
-
-        console.print_header("BUILD PLAN")
-        console.print()
-        for entry in plan.entries:
-            if entry.action == BuildAction.SKIP:
-                symbol = console.SYMBOL_CACHED
-            elif entry.action == BuildAction.RUN:
-                symbol = console.SYMBOL_REBUILD
-            else:
-                symbol = console.SYMBOL_RESTORE
-            cost_hint = ""
-            if entry.action == BuildAction.RUN and entry.estimated_cost_usd is not None:
-                cost_hint = f"  ~${entry.estimated_cost_usd:.2f}"
-            console.print(f"  {entry.name:<20} {symbol}{cost_hint}")
-
-        if plan.estimated_total_cost_usd > 0:
-            console.print(
-                f"\n[dim]Estimated cost to rebuild stale steps: "
-                f"${plan.estimated_total_cost_usd:.2f}[/dim]"
-            )
-
-        project.close()
+            typer.echo(_json.dumps(payload, indent=2))
+        else:
+            console.print_build_plan(plan_obj)
+        proj.close()
     except ConfigError as e:
         console.print_error(str(e))
         raise typer.Exit(code=1)
@@ -240,10 +220,11 @@ def plan(
 def status(
     targets: Optional[list[str]] = typer.Argument(None),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
 ) -> None:
     """Show artifact status."""
     try:
-        project = _load_project(config)
+        project = _load_project(config, project=project)
         console.print_header("AIMAKE STATUS")
         console.print()
 
@@ -680,17 +661,70 @@ def cache_pull(
 @cache_app.command("sync")
 def cache_sync(
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
 ) -> None:
     """Pull missing entries from remote, push new local entries."""
     try:
-        project = _load_project(config)
-        if not project.config.cache.remote:
+        proj = _load_project(config, project=project)
+        if not proj.config.cache.remote:
             console.print_error("Remote cache not configured in aimake.yaml")
             raise typer.Exit(code=1)
-        pulled = project.cache_pull()
-        pushed = project.cache_push()
+        pulled = proj.cache_pull()
+        pushed = proj.cache_push()
         console.print_success(f"Sync complete: {len(pulled)} pulled, {len(pushed)} pushed")
-        project.close()
+        proj.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@cache_app.command("remote-init")
+def cache_remote_init(
+    bucket: str = typer.Option(..., "--bucket", "-b", help="S3 bucket name"),
+    prefix: str = typer.Option("aimake/cache/", "--prefix", help="Key prefix"),
+    region: Optional[str] = typer.Option(None, "--region", "-r"),
+    endpoint_url: Optional[str] = typer.Option(None, "--endpoint", help="S3-compatible endpoint"),
+    team_id: Optional[str] = typer.Option(None, "--team", "-t", help="Shared org team id"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Write shared team cache (S3) settings into aimake.yaml."""
+    try:
+        proj = _load_project(config, project=project)
+        path = proj.cache_init_remote(
+            bucket=bucket,
+            prefix=prefix,
+            region=region,
+            endpoint_url=endpoint_url,
+            team_id=team_id,
+        )
+        console.print_success(f"Wrote cache.remote to {path}")
+        if team_id:
+            console.print_info(f"Team prefix: {prefix.rstrip('/')}/{team_id}/")
+        console.print_info("Commit aimake.lock after a successful build so CI/laptops share fingerprints.")
+        console.print_info("Then: aimake cache pull-lock && aimake build")
+        proj.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@cache_app.command("pull-lock")
+def cache_pull_lock(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Pull fingerprints pinned in aimake.lock from the shared team cache."""
+    try:
+        proj = _load_project(config, project=project)
+        if not proj.config.cache.remote:
+            console.print_error("Remote cache not configured")
+            raise typer.Exit(code=1)
+        pulled = proj.cache_pull_lock()
+        console.print_success(f"Pulled {len(pulled)} lock-pinned entr{'y' if len(pulled)==1 else 'ies'}")
+        for fp in pulled[:20]:
+            console.print_info(f"  {fp[:48]}...")
+        proj.close()
     except ConfigError as e:
         console.print_error(str(e))
         raise typer.Exit(code=1)
@@ -852,15 +886,51 @@ def registry_promote(
     artifact: str = typer.Argument(..., help="Artifact name"),
     version: str = typer.Argument(..., help="Version"),
     stage: str = typer.Option("production", "--stage", "-s"),
+    force: bool = typer.Option(False, "--force", help="Skip policy gates"),
+    no_push: bool = typer.Option(False, "--no-push", help="Skip remote registry push"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
 ) -> None:
-    """Promote a registry version to staging or production."""
+    """Promote a registry version to staging or production (policy-gated)."""
     try:
-        project = _load_project(config)
-        entry = project.registry_promote(artifact, version, stage)
+        from aimake.policy import PolicyError
+
+        proj = _load_project(config, project=project)
+        entry, push_result = proj.registry_promote(
+            artifact,
+            version,
+            stage,
+            force=force,
+            push=False if no_push else None,
+        )
         console.print_success(f"Promoted {artifact}@{version} → {entry.stage}")
-        project.close()
+        if push_result:
+            console.print_success(f"Pushed to {push_result.backend}: {push_result.uri}")
+        proj.close()
+    except PolicyError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
     except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@registry_app.command("push")
+def registry_push_cmd(
+    artifact: str = typer.Argument(..., help="Artifact name"),
+    version: str = typer.Argument(..., help="Version"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Push a registry version to remote (S3 / Hugging Face / W&B)."""
+    try:
+        from aimake.registry.remote import RegistryRemoteError
+
+        proj = _load_project(config, project=project)
+        result = proj.registry_push(artifact, version)
+        console.print_success(f"Pushed {artifact}@{version} → {result.uri}")
+        proj.close()
+    except (ConfigError, ValueError, RegistryRemoteError) as e:
         console.print_error(str(e))
         raise typer.Exit(code=1)
 
@@ -871,19 +941,143 @@ def registry_tag(
     version: str = typer.Argument(..., help="Version"),
     tags: list[str] = typer.Argument(..., help="Tags to add"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
 ) -> None:
     """Add tags to a registry version."""
     try:
-        project = _load_project(config)
-        entry = project.registry_tag(artifact, version, tags)
+        proj = _load_project(config, project=project)
+        entry = proj.registry_tag(artifact, version, tags)
         console.print_success(f"Tagged {artifact}@{version}: {', '.join(entry.tags)}")
-        project.close()
+        proj.close()
     except (ConfigError, ValueError) as e:
         console.print_error(str(e))
         raise typer.Exit(code=1)
 
 
 app.add_typer(registry_app, name="registry")
+
+
+@app.command()
+def schedule(
+    cron: Optional[str] = typer.Argument(
+        None, help='Cron expression, e.g. "0 6 * * *" (daily 06:00)'
+    ),
+    job: Optional[str] = typer.Option(None, "--job", "-j", help="Named job from schedule.jobs"),
+    once: bool = typer.Option(False, "--once", help="Run on next match then exit"),
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show next fire time only"),
+    targets: Optional[list[str]] = typer.Option(None, "--target", "-t", help="Build targets"),
+    force: bool = typer.Option(False, "--force", "-f"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Run builds on a cron schedule (or a named schedule.jobs entry)."""
+    try:
+        from aimake.schedule import CronError, CronSchedule, next_matches, run_schedule_loop
+
+        proj = _load_project(config, project=project)
+        expression = cron
+        job_targets = list(targets or [])
+        job_force = force
+
+        if job:
+            sched = proj.config.schedule
+            if not sched or job not in sched.jobs:
+                console.print_error(f"Unknown schedule job '{job}'")
+                raise typer.Exit(code=1)
+            j = sched.jobs[job]
+            if not j.enabled:
+                console.print_error(f"Schedule job '{job}' is disabled")
+                raise typer.Exit(code=1)
+            expression = j.cron
+            if not job_targets:
+                job_targets = list(j.targets)
+            job_force = job_force or j.force
+
+        if not expression:
+            console.print_error('Provide a cron expression or --job name')
+            raise typer.Exit(code=1)
+
+        schedule_obj = CronSchedule.parse(expression)
+        nxt = next_matches(schedule_obj)
+        console.print_info(f"Cron: {expression}")
+        console.print_info(f"Next run (UTC): {nxt.isoformat()}")
+        if dry_run:
+            proj.close()
+            return
+
+        def tick() -> None:
+            console.print_info(f"\n[{CronSchedule.parse(expression).expression}] building...")
+            result = proj.build(
+                targets=job_targets or None,
+                force=list(proj.graph.names()) if job_force else None,
+            )
+            console.print_build_summary(result)
+
+        console.print_info("Press Ctrl+C to stop\n")
+        try:
+            run_schedule_loop(expression, tick, once=once)
+        except KeyboardInterrupt:
+            console.print_info("\nStopped")
+        proj.close()
+    except (ConfigError, CronError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command("notify-test")
+def notify_test(
+    event: str = typer.Option("fail", "--event", "-e", help="fail|success|quality_gate|cost_spike"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Send a test notification via configured Slack/Discord/email channels."""
+    try:
+        from aimake.notify import Notifier
+
+        proj = _load_project(config, project=project)
+        sent = Notifier(proj.config.notifications).notify(
+            event,
+            f"aimake notify-test ({event})",
+            f"Test notification from {proj.config.project.name}",
+            fields={"project": proj.config.project.name, "root": str(proj.project_root)},
+        )
+        if sent:
+            console.print_success(f"Sent via: {', '.join(sent)}")
+        else:
+            console.print_warning(
+                "No channels sent. Enable notifications.* and set webhook/SMTP env vars."
+            )
+        proj.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def secrets(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Show which secrets sources loaded (keys only, never values)."""
+    try:
+        from aimake.secrets import load_secrets
+
+        proj = _load_project(config, project=project)
+        summary = load_secrets(proj.project_root, proj.config.secrets)
+        console.print_header("SECRETS")
+        dotenv_keys = summary.get("dotenv") or []
+        console.print(f"  .env keys: {len(dotenv_keys)}")
+        for k in dotenv_keys[:30]:
+            console.print_info(f"    {k}")
+        for p in summary.get("providers") or []:
+            if p.get("ok"):
+                console.print_success(f"  {p['type']}: {len(p.get('keys') or [])} keys")
+            else:
+                console.print_error(f"  {p['type']}: {p.get('error')}")
+        proj.close()
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -1210,11 +1404,15 @@ app.add_typer(ollama_app, name="ollama")
 def _load_project(
     config: Path | None = None,
     *,
+    project: str | None = None,
     debug: bool = False,
     verbose: bool = False,
 ) -> Project:
-    if config:
-        return Project.load(config, debug=debug, verbose=verbose)
+    from aimake.config.loader import resolve_project_config
+
+    resolved = resolve_project_config(config, project)
+    if resolved:
+        return Project.load(resolved, debug=debug, verbose=verbose)
     return Project.load(debug=debug, verbose=verbose)
 
 

@@ -49,7 +49,45 @@ def load_config(path: Path | None = None) -> tuple[AimakeConfig, Path]:
         config = AimakeConfig.model_validate(raw)
     except Exception as e:
         raise ConfigError(f"Invalid configuration: {e}") from e
+
+    # Secrets before any remote/plugin work
+    from aimake.secrets import load_secrets
+
+    load_secrets(config_path.parent, config.secrets)
     return config, config_path
+
+
+def resolve_project_config(
+    config: Path | None = None,
+    project: str | None = None,
+) -> Path | None:
+    """Resolve --config / --project into an aimake.yaml path.
+
+    --project=apps/rag → apps/rag/aimake.yaml (or apps/rag if it is the yaml).
+    """
+    if config and project:
+        raise ConfigError("Use either --config or --project, not both")
+    if config:
+        return Path(config)
+    if not project:
+        return None
+    p = Path(project)
+    if p.is_file():
+        return p
+    candidate = p / CONFIG_FILE
+    if candidate.is_file():
+        return candidate
+    # Walk up from cwd/project for nested monorepos
+    if not p.is_absolute():
+        abs_p = (Path.cwd() / p).resolve()
+        if (abs_p / CONFIG_FILE).is_file():
+            return abs_p / CONFIG_FILE
+        if abs_p.is_file():
+            return abs_p
+    raise ConfigError(
+        f"No {CONFIG_FILE} found for --project={project}. "
+        f"Expected {p / CONFIG_FILE}"
+    )
 
 
 def save_yaml(path: Path, data: dict) -> None:

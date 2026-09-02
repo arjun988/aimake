@@ -716,12 +716,27 @@ class BuildRunner:
             git_branch=git_info.branch if git_info.available else None,
             git_dirty=git_info.dirty if git_info.available else None,
         )
+        estimated_cost = None
+        for key in ("cost_usd", "estimated_cost_usd", "cost"):
+            if key in all_metrics and isinstance(all_metrics[key], (int, float)):
+                estimated_cost = float(all_metrics[key])
+                break
         self._emit_plugins(
             "on_build_finish",
             {
                 "project_root": self.project_root,
                 "build_id": self._build_id,
-                "result": build_result,
+                "result": {
+                    "success": build_result.success,
+                    "duration": build_result.duration,
+                    "failed": build_result.failed,
+                    "rebuilt": build_result.rebuilt,
+                    "metrics": all_metrics,
+                },
+                "success": success,
+                "failed": failed,
+                "metrics": all_metrics,
+                "estimated_cost_usd": estimated_cost,
             },
         )
 

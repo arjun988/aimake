@@ -144,18 +144,47 @@ export const api = {
     request<{ experiment: ExperimentRow; trials: Record<string, unknown>[] }>(
       `/api/experiments/${id}`,
     ),
-  registry: () => request<{ entries: RegistryEntry[]; enabled: boolean }>("/api/registry"),
-  promote: (artifact: string, version: string, stage: string) =>
+  registry: () =>
+    request<{
+      entries: RegistryEntry[];
+      enabled: boolean;
+      remote?: { type: string; auto_push_on_promote?: boolean } | null;
+      policy?: Record<string, unknown> | null;
+    }>("/api/registry"),
+  promote: (
+    artifact: string,
+    version: string,
+    stage: string,
+    opts?: { force?: boolean; push?: boolean },
+  ) =>
     request("/api/registry/promote", {
       method: "POST",
-      body: JSON.stringify({ artifact, version, stage }),
+      body: JSON.stringify({ artifact, version, stage, ...opts }),
     }),
+  registryPush: (artifact: string, version: string) =>
+    request<{ uri: string; backend: string }>("/api/registry/push", {
+      method: "POST",
+      body: JSON.stringify({ artifact, version }),
+    }),
+  policyCheck: (artifact: string, version: string, stage = "production") =>
+    request<{ ok: boolean; violations: { code: string; message: string }[] }>(
+      `/api/policy/check?artifact=${encodeURIComponent(artifact)}&version=${encodeURIComponent(version)}&stage=${encodeURIComponent(stage)}`,
+    ),
   tag: (artifact: string, version: string, tags: string[]) =>
     request("/api/registry/tag", {
       method: "POST",
       body: JSON.stringify({ artifact, version, tags }),
     }),
   cache: () => request<Record<string, unknown>>("/api/cache"),
+  settings: () => request<Record<string, unknown>>("/api/settings") as Promise<{
+    project: { name: string; version: string; root: string };
+    cache: Record<string, unknown>;
+    registry: { enabled: boolean; remote: { type: string } | null };
+    policy: Record<string, unknown> | null;
+    notifications: { slack: boolean; discord: boolean; email: boolean };
+    schedule_jobs: string[];
+    secrets: { dotenv: boolean; providers: string[] };
+  }>,
   plan: () => request<{ entries: PlanEntry[]; estimated_total_cost_usd: number }>("/api/plan"),
   health: () => request<{ ok: boolean }>("/api/health"),
 };

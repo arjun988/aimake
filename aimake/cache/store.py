@@ -32,7 +32,21 @@ class Cache:
         if config and config.cache.remote:
             self.remote_config = config.cache.remote
             if config.cache.remote.type == "s3" and config.cache.remote.s3:
-                self.remote = S3Cache(config.cache.remote.s3)
+                from copy import deepcopy
+
+                from aimake.config.schema import S3CacheConfig
+
+                s3_cfg = deepcopy(config.cache.remote.s3)
+                team = config.cache.remote.team_id
+                if team:
+                    base = s3_cfg.prefix.rstrip("/")
+                    s3_cfg = S3CacheConfig(
+                        bucket=s3_cfg.bucket,
+                        prefix=f"{base}/{team}/",
+                        region=s3_cfg.region,
+                        endpoint_url=s3_cfg.endpoint_url,
+                    )
+                self.remote = S3Cache(s3_cfg)
 
     def close(self) -> None:
         self.db.close()
@@ -133,8 +147,22 @@ class Cache:
     def remote_status(self) -> dict[str, Any]:
         """Return remote cache status."""
         local = set(self.fs.list_entries())
+        team_id = self.remote_config.team_id if self.remote_config else None
+        s3 = self.remote_config.s3 if self.remote_config else None
+        identity = {
+            "team_id": team_id,
+            "bucket": s3.bucket if s3 else None,
+            "prefix": (
+                f"{s3.prefix.rstrip('/')}/{team_id}/" if s3 and team_id
+                else (s3.prefix if s3 else None)
+            ),
+        }
         if not self.remote:
-            return {"enabled": False, "local_entries": len(local)}
+            return {
+                "enabled": False,
+                "local_entries": len(local),
+                "team": identity,
+            }
         remote = set(self.remote.list_entries())
         return {
             "enabled": True,
@@ -144,7 +172,19 @@ class Cache:
             "only_local": sorted(local - remote),
             "only_remote": sorted(remote - local),
             "synced": sorted(local & remote),
+            "team": identity,
         }
+
+    def pull_lock_fingerprints(self, fingerprints: dict[str, str]) -> list[str]:
+        """Pull specific fingerprints referenced by aimake.lock (shared team cache)."""
+        if not self.remote:
+            return []
+        pulled: list[str] = []
+        for fp in fingerprints.values():
+            full = fp if fp.startswith("sha256:") else f"sha256:{fp}"
+            if self.remote.pull(full, self.fs):
+                pulled.append(full)
+        return pulled
 
     def invalidate(self, name: str) -> None:
         state = self.db.get_artifact(name)

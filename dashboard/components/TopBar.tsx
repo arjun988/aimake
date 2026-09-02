@@ -28,6 +28,10 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
     title: "Cache",
     subtitle: "Local store and remote sync status",
   },
+  "/settings": {
+    title: "Settings",
+    subtitle: "Team cache, policy, notifications, secrets",
+  },
 };
 
 export function TopBar() {

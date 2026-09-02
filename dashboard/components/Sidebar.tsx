@@ -11,6 +11,7 @@ const NAV = [
   { href: "/experiments", label: "Experiments", icon: ExperimentsIcon },
   { href: "/registry", label: "Registry", icon: RegistryIcon },
   { href: "/cache", label: "Cache", icon: CacheIcon },
+  { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export function Sidebar() {
@@ -128,6 +129,20 @@ function CacheIcon({ active }: { active: boolean }) {
       <ellipse cx="8" cy="4.2" rx="5.2" ry="1.8" stroke="currentColor" strokeWidth="1.4" />
       <path d="M2.8 4.2v3.8c0 1 2.3 1.8 5.2 1.8s5.2-.8 5.2-1.8V4.2" stroke="currentColor" strokeWidth="1.4" />
       <path d="M2.8 8v3.8c0 1 2.3 1.8 5.2 1.8s5.2-.8 5.2-1.8V8" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function SettingsIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className={active ? "text-brand-500" : ""}>
+      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M8 1.5v1.4M8 13.1V14.5M1.5 8H2.9M13.1 8H14.5M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

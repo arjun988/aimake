@@ -169,7 +169,33 @@ cp .env.local.example .env.local
 npm install && npm run dev
 ```
 
-Open http://localhost:3000 — graph, builds, experiments, registry promote, cache.
+Open http://localhost:3000 — graph, builds, experiments, registry promote, cache, settings.
+
+### Team & production (v1.5)
+
+```bash
+# Shared S3 cache for CI + laptops
+aimake cache remote-init --bucket my-org-cache --team acme
+aimake build                      # writes aimake.lock (commit it)
+aimake cache pull-lock            # other machine / CI restores pinned fingerprints
+
+# Monorepo
+aimake build --project=apps/rag
+
+# Promote with policy gates + remote push
+aimake registry promote evaluation v3 --stage production
+aimake registry push evaluation v3
+
+# Daily evals
+aimake schedule "0 6 * * *"
+aimake schedule --job nightly --once
+
+# Notifications / secrets
+aimake notify-test --event fail
+aimake secrets                    # lists loaded key names only
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for `cache.remote.team_id`, `registry.remote`, `policy`, `notifications`, `schedule`, and `secrets` YAML.
 
 ### GitHub Action
 
@@ -345,14 +371,14 @@ Validates metrics from the latest build against `quality_gates` in `aimake.yaml`
 
 ```bash
 aimake cache status
+aimake cache remote-init --bucket my-cache --team acme --region us-east-1
 aimake cache push
-aimake cache push <fingerprint>
 aimake cache pull
-aimake cache pull <fingerprint>
+aimake cache pull-lock          # restore fingerprints from aimake.lock
 aimake cache sync
 ```
 
-Requires `cache.remote` in config and `pip install aimake[s3]`.
+Requires `cache.remote` in config and `pip install aimake[s3]`. Set `team_id` so CI and laptops share one prefix; commit `aimake.lock` after green builds.
 
 ### GPU & distributed workers
 
@@ -388,15 +414,18 @@ aimake registry list --artifact evaluation --stage production
 aimake registry list --tag best
 aimake registry show evaluation v1
 aimake registry promote evaluation v1 --stage production
+aimake registry promote evaluation v1 --stage production --force   # skip policy
+aimake registry push evaluation v1
 aimake registry tag evaluation v1 best champion
 ```
 
-Requires `registry.enabled: true` in `aimake.yaml`.
+Requires `registry.enabled: true` in `aimake.yaml`. Optional `registry.remote` + `policy.promote` for remote push and gates.
 
 | Command | Options |
 |---------|---------|
 | `registry list` | `--artifact`, `-a`; `--stage`, `-s`; `--tag`, `-t`; `--limit`, `-n` |
-| `registry promote` | `--stage`, `-s` (default: `production`) |
+| `registry promote` | `--stage`, `-s`; `--force`; `--no-push` |
+| `registry push` | push current version to S3 / HF / W&B |
 
 ### Plugins
 

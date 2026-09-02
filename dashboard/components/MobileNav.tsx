@@ -8,9 +8,9 @@ const LINKS = [
   { href: "/", label: "Home" },
   { href: "/graph", label: "Graph" },
   { href: "/builds", label: "Builds" },
-  { href: "/experiments", label: "Expts" },
   { href: "/registry", label: "Registry" },
   { href: "/cache", label: "Cache" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function MobileNav() {

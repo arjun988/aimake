@@ -26,7 +26,7 @@ from aimake.constants import (
 )
 from aimake.execution.runner import BuildRunner
 from aimake.graph.dag import Graph, GraphError
-from aimake.lock import generate_lock, read_lock, write_lock
+from aimake.lock import generate_lock, lock_fingerprints, read_lock, remote_identity, write_lock
 from aimake.metrics.quality import QualityGateChecker
 from aimake.models import ArtifactStatus, BuildPlan, BuildResult, ExplainDetail, ExplainResult
 from aimake.diff.engine import DiffEngine
@@ -34,6 +34,8 @@ from aimake.diff.snapshots import extract_snapshot
 from aimake.init.generators import generate_from
 from aimake.scheduling.resources import GPUDetector
 from aimake.plugins.loader import load_plugins
+from aimake.policy import PolicyError, PromotePolicyChecker
+from aimake.registry.remote import RegistryRemote, RegistryRemoteError
 
 
 class Project:
@@ -164,10 +166,11 @@ class Project:
             dry_run=dry_run,
         )
 
-        if result.success and not dry_run:
+        if result.success and not dry_run and self.config.cache.write_lock:
             lock_data = generate_lock(
                 self.config.project.name,
                 runner.compute_fingerprints(),
+                remote=remote_identity(self.config.cache.remote),
             )
             write_lock(self.project_root, lock_data)
 
@@ -301,11 +304,135 @@ class Project:
     ):
         return self.registry.list(artifact, stage=stage, tag=tag, limit=limit)
 
-    def registry_promote(self, artifact: str, version: str, stage: str):
-        return self.registry.promote(artifact, version, stage)
+    def registry_promote(
+        self,
+        artifact: str,
+        version: str,
+        stage: str,
+        *,
+        force: bool = False,
+        push: bool | None = None,
+    ):
+        entry = self.registry.get(artifact, version)
+        if entry is None:
+            raise ValueError(f"Registry entry not found: {artifact}@{version}")
+
+        cost = None
+        if entry.metrics:
+            for key in ("cost_usd", "estimated_cost_usd", "cost"):
+                if key in entry.metrics and isinstance(entry.metrics[key], (int, float)):
+                    cost = float(entry.metrics[key])
+                    break
+
+        PromotePolicyChecker(self.config).enforce(
+            stage=stage,
+            metrics=entry.metrics,
+            tags=entry.tags,
+            cost_usd=cost,
+            force=force,
+        )
+
+        entry = self.registry.promote(artifact, version, stage)
+
+        should_push = push
+        if should_push is None:
+            remote = self.config.registry.remote
+            should_push = bool(remote and remote.auto_push_on_promote)
+
+        push_result = None
+        if should_push and self.config.registry.remote:
+            push_result = self.registry_push(artifact, version)
+
+        return entry, push_result
 
     def registry_tag(self, artifact: str, version: str, tags: list[str]):
         return self.registry.tag(artifact, version, tags)
+
+    def registry_push(self, artifact: str, version: str):
+        entry = self.registry.get(artifact, version)
+        if entry is None:
+            raise ValueError(f"Registry entry not found: {artifact}@{version}")
+        remote = RegistryRemote(self.config.registry, self.project_root)
+        if not remote.enabled:
+            raise RegistryRemoteError("registry.remote is not configured")
+        outputs: list[str] = []
+        state = self.cache.get_artifact_state(artifact)
+        if state and state.outputs:
+            outputs = list(state.outputs)
+        elif artifact in self.graph:
+            outputs = list(self.graph.get(artifact).config.outputs)
+        return remote.push(entry, outputs=outputs, metadata=dict(entry.metadata or {}))
+
+    def cache_init_remote(
+        self,
+        *,
+        bucket: str,
+        prefix: str = "aimake/cache/",
+        region: str | None = None,
+        endpoint_url: str | None = None,
+        team_id: str | None = None,
+        auto_pull: bool = True,
+        auto_push: bool = True,
+    ) -> Path:
+        """Write cache.remote block into aimake.yaml for shared team cache."""
+        import yaml
+
+        raw = yaml.safe_load(self.config_path.read_text(encoding="utf-8")) or {}
+        cache = raw.setdefault("cache", {})
+        remote: dict[str, Any] = {
+            "type": "s3",
+            "auto_pull": auto_pull,
+            "auto_push": auto_push,
+            "s3": {
+                "bucket": bucket,
+                "prefix": prefix,
+            },
+        }
+        if region:
+            remote["s3"]["region"] = region
+        if endpoint_url:
+            remote["s3"]["endpoint_url"] = endpoint_url
+        if team_id:
+            remote["team_id"] = team_id
+        cache["remote"] = remote
+        self.config_path.write_text(
+            yaml.dump(raw, default_flow_style=False, sort_keys=False),
+            encoding="utf-8",
+        )
+        return self.config_path
+
+    def cache_pull_lock(self) -> list[str]:
+        """Pull all fingerprints pinned in aimake.lock from the team remote cache."""
+        lock = read_lock(self.project_root)
+        fps = lock_fingerprints(lock)
+        if not fps:
+            return []
+        return self.cache.pull_lock_fingerprints(fps)
+
+    def policy_check_promote(
+        self,
+        artifact: str,
+        version: str,
+        stage: str,
+        *,
+        force: bool = False,
+    ) -> list:
+        entry = self.registry.get(artifact, version)
+        if entry is None:
+            raise ValueError(f"Registry entry not found: {artifact}@{version}")
+        cost = None
+        if entry.metrics:
+            for key in ("cost_usd", "estimated_cost_usd", "cost"):
+                if key in entry.metrics and isinstance(entry.metrics[key], (int, float)):
+                    cost = float(entry.metrics[key])
+                    break
+        return PromotePolicyChecker(self.config).check(
+            stage=stage,
+            metrics=entry.metrics,
+            tags=entry.tags,
+            cost_usd=cost,
+            force=force,
+        )
 
     def _metric_directions(self) -> tuple[set[str], set[str]]:
         higher: set[str] = set()
