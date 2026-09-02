@@ -11,7 +11,7 @@ from aimake.models import ArtifactState, ArtifactStatus, BuildResult
 from aimake.project import Project
 from aimake.sdk import Aimake, load
 
-__version__ = "1.7.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "Aimake",

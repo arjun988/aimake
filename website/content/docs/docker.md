@@ -19,7 +19,7 @@ Related: [CI/CD](/docs/ci-cd), [TypeScript SDK](/docs/sdk-typescript) (`aimake s
 docker pull ghcr.io/arjun988/aimake:latest
 ```
 
-Useful tags (from GHCR metadata): `latest`, semver (`1.7.0`, `1.7`), branch names, and short git SHAs.
+Useful tags (from GHCR metadata): `latest`, semver (`2.0.0`, `2.0`), branch names, and short git SHAs.
 
 ---
 
@@ -104,7 +104,7 @@ Do not bake secrets into the image. Prefer env / your secret store — see [Secu
 Prefer the first-party action when you want cache helpers and PR comments:
 
 ```yaml
-- uses: arjun988/aimake/.github/actions/aimake@v1
+- uses: arjun988/aimake/.github/actions/aimake@v2
   with:
     config: aimake.yaml
     extra: s3

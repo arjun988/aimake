@@ -1,6 +1,6 @@
 {
   "name": "@aimake/sdk",
-  "version": "1.7.0",
+  "version": "2.0.0",
   "description": "TypeScript client for aimake serve — mirrors the Python Project SDK",
   "type": "module",
   "main": "./dist/index.js",

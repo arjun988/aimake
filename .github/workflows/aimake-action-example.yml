@@ -12,9 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: arjun988/aimake/.github/actions/aimake@v1
+      # Same-repo: use the local composite action (no release tag required).
+      # In other repos after tagging a release:
+      #   uses: arjun988/aimake/.github/actions/aimake@v2
+      - uses: ./.github/actions/aimake
         with:
           config: examples/rag/aimake.yaml
+          cache-path: examples/rag/.aimake
           extra: all
           post-comment: "true"
 

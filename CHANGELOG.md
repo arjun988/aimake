@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-02
+
 ### Added
 - **Documentation website:** Next.js + Tailwind site in `website/` (dev on port 3001) with detailed guides covering CLI, SDKs, Docker, trust, team, and more
+- Team/production features (shared cache, registry remote, promote policy, schedule, notifications, monorepo, secrets)
+- Trust & reproducibility (probes, validation scripts, attestation, repro reports, partial restore, lineage)
+- Docker image (`ghcr.io/<owner>/aimake`), interactive TUI, Python + TypeScript SDKs, web dashboard
+
+### Fixed
+- CI RAG incremental check now asserts `plan --format json` `to_skip` (plan prints `SKIP`, not `cached`)
+- Example GitHub Action workflow uses local `./.github/actions/aimake` so CI does not require a missing `@v1` tag; action installs from the checkout when present
+
+### Changed
+- Major version bump reflecting the production-ready surface (dashboard, team, trust, SDKs, docs site)
 
 ## [1.7.0] - 2026-09-02
 

@@ -57,7 +57,14 @@ runs:
       shell: bash
       run: |
         EXTRA="${{ inputs.extra }}"
-        if [ -n "$EXTRA" ]; then
+        # Prefer the checked-out package when dogfooding this repo
+        if [ -f pyproject.toml ] && grep -q 'name = "aimake"' pyproject.toml; then
+          if [ -n "$EXTRA" ]; then
+            pip install -e ".[$EXTRA]"
+          else
+            pip install -e .
+          fi
+        elif [ -n "$EXTRA" ]; then
           pip install "aimake[$EXTRA]"
         else
           pip install aimake

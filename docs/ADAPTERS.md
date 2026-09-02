@@ -136,7 +136,7 @@ aimake build finetune
 ## CI with GitHub Action
 
 ```yaml
-- uses: arjun988/aimake/.github/actions/aimake@v1
+- uses: arjun988/aimake/.github/actions/aimake@v2
   with:
     config: aimake.yaml
     extra: s3

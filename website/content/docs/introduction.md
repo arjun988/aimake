@@ -7,7 +7,7 @@ description: What aimake is, why AI pipelines need incremental builds, and how i
 
 **aimake** is an incremental build system for AI and ML pipelines. It sits in the same mental model as `make`, `git`, and DVC — but it is shaped for the artifacts AI teams actually touch: datasets, prompts, embeddings, indexes, models, evaluations, and reports.
 
-Install from [PyPI](https://pypi.org/project/aimake/) (`pip install aimake`). Source and issues live on [GitHub](https://github.com/arjun988/aimake). Current stable line is **v1.7.x**.
+Install from [PyPI](https://pypi.org/project/aimake/) (`pip install aimake`). Source and issues live on [GitHub](https://github.com/arjun988/aimake). Current stable line is **v2.0**.
 
 When only a prompt changes, everything upstream should be skipped. aimake tracks a dependency DAG, fingerprints inputs with **SHA-256 content hashes** (not file mtimes), and rebuilds only the nodes that actually changed — locally, in CI, or across a shared remote cache.
 

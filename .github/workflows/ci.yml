@@ -32,7 +32,9 @@ jobs:
         run: |
           aimake build
           aimake build
-          test "$(aimake plan 2>&1 | grep -c 'cached')" -ge 5
+          # Plan prints SKIP (not "cached") for unchanged artifacts
+          aimake plan --format json > /tmp/aimake-plan.json
+          python -c "import json; p=json.load(open('/tmp/aimake-plan.json')); assert len(p.get('to_skip') or []) >= 5, p; assert not (p.get('to_run') or []), p"
           echo "modified prompt" >> prompts/system.txt
           aimake plan
           aimake diff prompt --baseline stored || true

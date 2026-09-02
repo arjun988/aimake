@@ -44,7 +44,7 @@ This matches the pattern in the project README. Expand it with caching and the o
 aimake ships a composite action at [`.github/actions/aimake`](https://github.com/arjun988/aimake/tree/main/.github/actions/aimake):
 
 ```yaml
-- uses: arjun988/aimake/.github/actions/aimake@v1
+- uses: arjun988/aimake/.github/actions/aimake@v2
   with:
     config: aimake.yaml
     post-comment: "true"
@@ -73,7 +73,7 @@ aimake ships a composite action at [`.github/actions/aimake`](https://github.com
 ### Example with S3 extra
 
 ```yaml
-- uses: arjun988/aimake/.github/actions/aimake@v1
+- uses: arjun988/aimake/.github/actions/aimake@v2
   with:
     config: aimake.yaml
     extra: s3
@@ -148,7 +148,7 @@ jobs:
       pull-requests: write   # for PR comments
     steps:
       - uses: actions/checkout@v4
-      - uses: arjun988/aimake/.github/actions/aimake@v1
+      - uses: arjun988/aimake/.github/actions/aimake@v2
         with:
           config: aimake.yaml
           post-comment: "true"

@@ -1,6 +1,6 @@
 ---
 title: Changelog
-description: Summary of aimake releases from 1.7.0 back through notable earlier versions — full history on GitHub.
+description: Summary of aimake releases from 2.0.0 back through notable earlier versions — full history on GitHub.
 ---
 
 Summarized from the repository [CHANGELOG.md](https://github.com/arjun988/aimake/blob/main/CHANGELOG.md). aimake follows [Semantic Versioning](https://semver.org/) and [Keep a Changelog](https://keepachangelog.com/).
@@ -8,6 +8,15 @@ Summarized from the repository [CHANGELOG.md](https://github.com/arjun988/aimake
 **Full history & compare links:** [github.com/arjun988/aimake/blob/main/CHANGELOG.md](https://github.com/arjun988/aimake/blob/main/CHANGELOG.md) · [Releases](https://github.com/arjun988/aimake/releases)
 
 Related: [Contributing](/docs/contributing), [Docker](/docs/docker), [Python SDK](/docs/sdk-python), [Trust & reproducibility](/docs/trust).
+
+---
+
+## 2.0.0 — Production release
+
+**2026-09-02**
+
+- Documentation website (`website/`), dashboard, team/production, trust/repro, Docker, TUI, and Python/TypeScript SDKs in one major line
+- See repository [CHANGELOG.md](https://github.com/arjun988/aimake/blob/main/CHANGELOG.md) for the full 2.0 notes
 
 ---
 

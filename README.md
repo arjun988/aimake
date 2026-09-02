@@ -235,7 +235,7 @@ See [CHANGELOG.md](CHANGELOG.md) for full YAML surfaces.
 ### GitHub Action
 
 ```yaml
-- uses: arjun988/aimake/.github/actions/aimake@v1
+- uses: arjun988/aimake/.github/actions/aimake@v2
   with:
     config: aimake.yaml
     post-comment: "true"

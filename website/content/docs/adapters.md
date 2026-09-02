@@ -167,7 +167,7 @@ Inside `src/finetune.py`, write checkpoints under `resolve_output("models/finetu
 Run adapted pipelines in CI with the official action (plan JSON + optional PR comments):
 
 ```yaml
-- uses: arjun988/aimake/.github/actions/aimake@v1
+- uses: arjun988/aimake/.github/actions/aimake@v2
   with:
     config: aimake.yaml
     extra: s3
