@@ -10,7 +10,7 @@ from aimake.hashing.fingerprint import Fingerprinter
 from aimake.models import ArtifactState, ArtifactStatus, BuildResult
 from aimake.project import Project
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 __all__ = [
     "Artifact",

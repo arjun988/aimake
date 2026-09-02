@@ -271,11 +271,30 @@ def status(
 @app.command()
 def graph(
     format: str = typer.Option("ascii", "--format", "-f", help="Output format: ascii, json, dot"),
+    serve_ui: bool = typer.Option(False, "--serve", help="Start dashboard API for the web UI"),
+    host: str = typer.Option("127.0.0.1", "--host", help="API host (with --serve)"),
+    port: int = typer.Option(8765, "--port", "-p", help="API port (with --serve)"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
 ) -> None:
     """Display the dependency DAG."""
     try:
         project = _load_project(config)
+
+        if serve_ui:
+            from aimake.serve.api import run_server
+
+            console.print_header("AIMAKE GRAPH / DASHBOARD API")
+            console.print_success(f"Serving graph API on http://{host}:{port}")
+            console.print_info("Open the Next.js dashboard (dashboard/) against this API.")
+            server = run_server(project, host=host, port=port)
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                console.print_info("\nStopped.")
+                server.shutdown()
+            finally:
+                project.close()
+            return
 
         if format == "json":
             typer.echo(json.dumps(project.graph_dict(), indent=2))
@@ -409,6 +428,41 @@ def explain(
 
         project.close()
     except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host"),
+    port: int = typer.Option(8765, "--port", "-p", help="API port"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    open_browser: bool = typer.Option(False, "--open", help="Open dashboard URL hint"),
+) -> None:
+    """Start the dashboard API server (pair with Next.js UI in dashboard/)."""
+    from aimake.serve.api import run_server
+
+    try:
+        project = _load_project(config)
+        console.print_header("AIMAKE DASHBOARD API")
+        console.print_success(f"Listening on http://{host}:{port}")
+        console.print_info("Endpoints: /api/overview /api/graph /api/builds /api/experiments /api/registry /api/cache")
+        console.print_info("Frontend: cd dashboard && npm install && npm run dev")
+        console.print_info(f"Set NEXT_PUBLIC_AIMAKE_API=http://{host}:{port}")
+        if open_browser:
+            import webbrowser
+
+            webbrowser.open(f"http://localhost:3000")
+        console.print_info("Press Ctrl+C to stop\n")
+        server = run_server(project, host=host, port=port)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            console.print_info("\nStopped.")
+            server.shutdown()
+        finally:
+            project.close()
+    except ConfigError as e:
         console.print_error(str(e))
         raise typer.Exit(code=1)
 

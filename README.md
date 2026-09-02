@@ -157,6 +157,20 @@ aimake watch              # re-plan on file changes
 aimake watch --build      # auto-rebuild stale steps
 ```
 
+### Web dashboard
+
+```bash
+# Terminal 1 — API
+aimake serve --port 8765
+
+# Terminal 2 — Next.js UI
+cd dashboard
+cp .env.local.example .env.local
+npm install && npm run dev
+```
+
+Open http://localhost:3000 — graph, builds, experiments, registry promote, cache.
+
 ### GitHub Action
 
 ```yaml
