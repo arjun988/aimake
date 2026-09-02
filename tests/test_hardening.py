@@ -93,7 +93,7 @@ def test_corrupted_cache_detected(tmp_path: Path) -> None:
     cache.close()
 
 
-def test_missing_output_marks_stale(tmp_path: Path) -> None:
+def test_missing_output_marks_cached_when_blob_exists(tmp_path: Path) -> None:
     config = AimakeConfig(
         project=ProjectConfig(name="test"),
         artifacts={
@@ -109,13 +109,13 @@ def test_missing_output_marks_stale(tmp_path: Path) -> None:
     runner = BuildRunner(tmp_path, config, graph, cache)
     runner.build()
 
-    # Delete output but fingerprint still in DB
+    # Delete output but fingerprint still in DB + cache blob
     import shutil
     shutil.rmtree(tmp_path / "build")
 
     runner2 = BuildRunner(tmp_path, config, graph, cache)
     statuses = runner2.compute_statuses()
-    assert statuses["a"] in (ArtifactStatus.STALE, ArtifactStatus.CHANGED)
+    assert statuses["a"] == ArtifactStatus.CACHED
     cache.close()
 
 

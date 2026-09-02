@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,7 +19,7 @@ class ValidationResult:
 
 
 class OutputValidator:
-    """Check outputs for size, structure, and semantic invariants."""
+    """Check outputs for size, structure, semantic invariants, and custom commands."""
 
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
@@ -45,7 +46,38 @@ class OutputValidator:
             path = self.project_root / rel
             errors.extend(self._validate_path(rel, path, config))
 
+        if config.command:
+            errors.extend(self._run_command(config))
+
         return ValidationResult(valid=not errors, errors=errors)
+
+    def _run_command(self, config: OutputValidationConfig) -> list[str]:
+        assert config.command
+        try:
+            proc = subprocess.run(
+                config.command,
+                shell=True,
+                cwd=str(self.project_root),
+                capture_output=True,
+                text=True,
+                timeout=config.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return [
+                f"validation.command timed out after {config.timeout_seconds}s: {config.command}"
+            ]
+        except OSError as e:
+            return [f"validation.command failed to start: {e}"]
+
+        if proc.returncode == 0:
+            return []
+        detail = (proc.stderr or proc.stdout or "").strip()
+        if len(detail) > 500:
+            detail = detail[:500] + "…"
+        return [
+            f"validation.command exited {proc.returncode}: {config.command}"
+            + (f" — {detail}" if detail else "")
+        ]
 
     def _validate_path(
         self,
@@ -72,7 +104,9 @@ class OutputValidator:
 
         if path.suffix == ".jsonl" and config.min_rows is not None:
             try:
-                rows = sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+                rows = sum(
+                    1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+                )
             except OSError as e:
                 errors.append(f"{rel}: cannot read jsonl ({e})")
                 return errors

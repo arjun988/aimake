@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-02
+
+### Added
+- **External drift probes (#19):** `external.probe` / `probe_mode: warn|invalidate` / `probe_url`; `aimake probe`
+- **Custom validation scripts (#20):** `validation.command` (+ timeout) run after structural checks
+- **Attestation (#21):** `attestation.enabled` writes SLSA-lite provenance under `.aimake/attestations/`
+- **Repro report (#22):** `aimake repro --format markdown|json|pdf`
+- **Partial restore (#23):** missing outputs with cache hit → `RESTORE` instead of full rebuild
+- **Lineage export (#24):** `aimake lineage` → OpenLineage / MLflow / W&B JSON; optional auto-export on build
+- Dashboard: `/repro`, `/lineage`; API `/api/repro`, `/api/lineage`, `/api/attestations`, `/api/probe`
+
 ## [1.5.0] - 2026-09-02
 
 ### Added

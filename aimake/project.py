@@ -434,6 +434,69 @@ class Project:
             force=force,
         )
 
+    def probe_external_drift(self) -> list[dict[str, Any]]:
+        """Probe all external deps with probe: true; return drift findings."""
+        from aimake.hashing.external_probe import probe_artifact_externals
+
+        findings: list[dict[str, Any]] = []
+        for name, art in self.config.artifacts.items():
+            for p in probe_artifact_externals(art.external):
+                findings.append(
+                    {
+                        "artifact": name,
+                        "name": p.name,
+                        "provider": p.provider,
+                        "pinned": p.pinned_revision,
+                        "live": p.live_revision,
+                        "drifted": p.drifted,
+                        "ok": p.ok,
+                        "detail": p.detail,
+                        "probe_mode": next(
+                            (e.probe_mode for e in art.external if e.name == p.name),
+                            "warn",
+                        ),
+                    }
+                )
+        return findings
+
+    def repro_report(self, *, fmt: str = "markdown", output: Path | None = None) -> Path:
+        from aimake.repro import write_repro_report
+
+        return write_repro_report(self, fmt=fmt, output=output)
+
+    def export_lineage(
+        self,
+        *,
+        formats: list[str] | None = None,
+        output_dir: Path | None = None,
+    ) -> dict[str, Path]:
+        from aimake.lineage import export_lineage
+
+        return export_lineage(self, formats=formats, output_dir=output_dir)
+
+    def lineage_graph(self) -> dict[str, Any]:
+        from aimake.lineage import lineage_graph_payload
+
+        return lineage_graph_payload(self)
+
+    def list_attestations(self) -> list[dict[str, Any]]:
+        root = self.project_root / ".aimake" / "attestations"
+        if not root.is_dir():
+            return []
+        out: list[dict[str, Any]] = []
+        for art_dir in sorted(root.iterdir()):
+            if not art_dir.is_dir():
+                continue
+            latest = art_dir / "latest.json"
+            out.append(
+                {
+                    "artifact": art_dir.name,
+                    "path": str(latest) if latest.is_file() else None,
+                    "versions": len(list(art_dir.glob("*.json"))),
+                }
+            )
+        return out
+
     def _metric_directions(self) -> tuple[set[str], set[str]]:
         higher: set[str] = set()
         lower: set[str] = set()
@@ -567,7 +630,7 @@ class Project:
             else:
                 issues.append(f"OK: {len(self.config.workers.workers)} worker(s) configured")
 
-        # Broken artifacts (missing outputs)
+        # Broken artifacts (missing outputs) — cache can restore them
         for node in self.graph:
             if node.config.outputs:
                 missing = [
@@ -576,9 +639,45 @@ class Project:
                 ]
                 state = self.cache.get_artifact_state(node.name)
                 if state and state.status == ArtifactStatus.SUCCESS and missing:
-                    issues.append(
-                        f"WARNING: [{node.name}] Cached but outputs missing: {', '.join(missing)}"
+                    hit = (
+                        self.cache.is_cache_hit(node.name, state.fingerprint)
+                        if state.fingerprint
+                        else False
                     )
+                    if hit:
+                        issues.append(
+                            f"OK: [{node.name}] outputs missing but cache hit — "
+                            f"next build will RESTORE"
+                        )
+                    else:
+                        issues.append(
+                            f"WARNING: [{node.name}] Cached in DB but outputs missing "
+                            f"and no local/remote cache blob: {', '.join(missing)}"
+                        )
+
+        # External model drift probes
+        try:
+            for finding in self.probe_external_drift():
+                if not finding.get("ok"):
+                    issues.append(
+                        f"WARNING: probe failed for {finding['artifact']}/"
+                        f"{finding['name']}: {finding.get('detail')}"
+                    )
+                elif finding.get("drifted"):
+                    issues.append(
+                        f"WARNING: external drift [{finding['artifact']}] "
+                        f"{finding['name']}: pinned={finding.get('pinned')} "
+                        f"live={finding.get('live')} (mode={finding.get('probe_mode')})"
+                    )
+        except Exception as e:
+            issues.append(f"WARNING: external probe error: {e}")
+
+        if self.config.attestation.enabled:
+            issues.append("OK: attestation enabled")
+        if self.config.lineage.enabled:
+            issues.append(
+                f"OK: lineage export ({', '.join(self.config.lineage.formats)})"
+            )
 
         if not issues:
             issues.append("OK: All checks passed")

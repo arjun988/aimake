@@ -114,12 +114,20 @@ class BuildRunner:
         stored = self.cache.get_stored_fingerprints()
         outputs_exist = self._check_outputs_exist(graph)
         outputs_valid = self._check_outputs_valid(graph)
+        cache_hits: dict[str, bool] = {}
+        for name, exists in outputs_exist.items():
+            if exists:
+                continue
+            fp = self._fingerprints.get(name)
+            if fp and stored.get(name) == fp:
+                cache_hits[name] = self.cache.is_cache_hit(name, fp)
         self._statuses = self.planner.compute_statuses(
             self._fingerprints,
             stored,
             graph,
             outputs_exist=outputs_exist,
             outputs_valid=outputs_valid,
+            cache_hits=cache_hits,
             force=force,
         )
         return self._statuses
@@ -441,6 +449,16 @@ class BuildRunner:
 
                 if entry.action == BuildAction.RESTORE:
                     if self.cache.restore(name, fp, node.config.outputs):
+                        # Re-validate restored outputs when configured
+                        validation = self._validate_artifact_outputs(node)
+                        if not validation.valid and node.config.validation:
+                            raise ExecutionError(
+                                name,
+                                node.config.command or "(restore)",
+                                0,
+                                "Restored output failed validation: "
+                                + "; ".join(validation.errors),
+                            )
                         self._log(f"RESTORED {name} from cache")
                         with result_lock:
                             reused.append(name)
@@ -593,6 +611,9 @@ class BuildRunner:
                             )
 
                         metadata = self._build_metadata(node)
+                        metadata = self._attach_attestation(
+                            name, fp, node, metadata, metrics=metrics
+                        )
                         self.cache.store(
                             name,
                             fp,
@@ -629,6 +650,7 @@ class BuildRunner:
                         staging.cleanup()
                 else:
                     metadata = self._build_metadata(node)
+                    metadata = self._attach_attestation(name, fp, node, metadata)
                     self.cache.store(
                         name,
                         fp,
@@ -740,6 +762,23 @@ class BuildRunner:
             },
         )
 
+        if success and self.config.lineage.enabled and self.config.lineage.auto_export_on_build:
+            try:
+                from aimake.lineage import export_lineage
+
+                class _Shim:
+                    pass
+
+                shim = _Shim()
+                shim.config = self.config
+                shim.project_root = self.project_root
+                shim.graph = self.graph
+                shim.runner = self
+                shim.cache = self.cache
+                export_lineage(shim)  # type: ignore[arg-type]
+            except Exception as e:
+                self._log(f"LINEAGE export skipped: {e}")
+
         self._finalize_log()
 
         return build_result
@@ -846,14 +885,53 @@ class BuildRunner:
         snapshot = capture_snapshot(node.name, node.config, self.project_root)
         return merge_metadata_with_snapshot(node.config.metadata, snapshot)
 
+    def _attach_attestation(
+        self,
+        name: str,
+        fingerprint: str,
+        node,
+        metadata: dict[str, Any],
+        *,
+        metrics: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not self.config.attestation.enabled:
+            return metadata
+        from aimake.attest import build_attestation, write_attestation
+
+        doc = build_attestation(
+            project_root=self.project_root,
+            config=self.config,
+            artifact=name,
+            fingerprint=fingerprint,
+            outputs=list(node.config.outputs),
+            build_id=self._build_id,
+            command=node.config.command,
+            dependencies=list(node.dependencies),
+            metrics=metrics,
+        )
+        path = write_attestation(
+            self.project_root, self.config, doc, name, fingerprint
+        )
+        if self.config.attestation.embed_in_metadata:
+            metadata = dict(metadata)
+            metadata["attestation"] = {
+                "predicateType": doc.get("predicateType"),
+                "subject": doc.get("subject"),
+                "git": doc.get("predicate", {}).get("metadata", {}).get("git"),
+                "path": str(path) if path else None,
+            }
+        return metadata
+
     def _handle_passive(self, node, fingerprint: str, *, metadata: dict[str, Any] | None = None) -> None:
         """Handle passive artifacts (source-only, no command)."""
+        meta = metadata or self._build_metadata(node)
+        meta = self._attach_attestation(node.name, fingerprint, node, meta)
         self.cache.store(
             node.name,
             fingerprint,
             artifact_type=node.config.type,
             outputs=[node.config.source] if node.config.source else [],
-            metadata=metadata or self._build_metadata(node),
+            metadata=meta,
         )
 
     def _parse_metrics(self, node) -> dict[str, Any]:

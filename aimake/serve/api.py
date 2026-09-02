@@ -289,6 +289,36 @@ class DashboardAPI:
                 "dotenv": cfg.secrets.dotenv,
                 "providers": [p.type for p in cfg.secrets.providers],
             },
+            "attestation": {
+                "enabled": cfg.attestation.enabled,
+                "write_sidecars": cfg.attestation.write_sidecars,
+            },
+            "lineage": {
+                "enabled": cfg.lineage.enabled,
+                "formats": list(cfg.lineage.formats),
+                "auto_export_on_build": cfg.lineage.auto_export_on_build,
+            },
+        }
+
+    def repro(self) -> dict[str, Any]:
+        from aimake.repro import build_repro_report
+
+        return build_repro_report(self.project)
+
+    def lineage(self) -> dict[str, Any]:
+        return self.project.lineage_graph()
+
+    def attestations(self) -> dict[str, Any]:
+        return {
+            "enabled": self.project.config.attestation.enabled,
+            "entries": self.project.list_attestations(),
+        }
+
+    def probe(self) -> dict[str, Any]:
+        findings = self.project.probe_external_drift()
+        return {
+            "findings": findings,
+            "drifted": any(f.get("drifted") for f in findings),
         }
 
     def tag(self, artifact: str, version: str, tags: list[str]) -> dict[str, Any]:
@@ -431,6 +461,14 @@ def create_handler(api: DashboardAPI) -> type[BaseHTTPRequestHandler]:
                             qs.get("stage", ["production"])[0],
                         ),
                     )
+                elif path == "/api/repro":
+                    self._send(200, api.repro())
+                elif path == "/api/lineage":
+                    self._send(200, api.lineage())
+                elif path == "/api/attestations":
+                    self._send(200, api.attestations())
+                elif path == "/api/probe":
+                    self._send(200, api.probe())
                 else:
                     self._error(404, f"Not found: {path}")
             except ValueError as e:

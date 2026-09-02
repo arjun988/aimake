@@ -28,6 +28,14 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
     title: "Cache",
     subtitle: "Local store and remote sync status",
   },
+  "/repro": {
+    title: "Reproducibility",
+    subtitle: "Fingerprints, git, drift probes, attestations",
+  },
+  "/lineage": {
+    title: "Lineage",
+    subtitle: "OpenLineage / MLflow / W&B artifact graph",
+  },
   "/settings": {
     title: "Settings",
     subtitle: "Team cache, policy, notifications, secrets",

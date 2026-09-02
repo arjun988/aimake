@@ -12,6 +12,8 @@ type Settings = {
   notifications: { slack: boolean; discord: boolean; email: boolean };
   schedule_jobs: string[];
   secrets: { dotenv: boolean; providers: string[] };
+  attestation?: { enabled: boolean; write_sidecars: boolean };
+  lineage?: { enabled: boolean; formats: string[]; auto_export_on_build: boolean };
 };
 
 export default function SettingsPage() {
@@ -106,6 +108,26 @@ export default function SettingsPage() {
             <Row
               label="Providers"
               value={data.secrets.providers.join(", ") || "—"}
+            />
+          </dl>
+        </section>
+        <section className="panel">
+          <div className="panel-header">
+            <p className="label">Trust</p>
+            <h3 className="mt-0.5 text-[15px] font-semibold text-ink">Attestation & lineage</h3>
+          </div>
+          <dl className="divide-y divide-surface-border text-sm">
+            <Row
+              label="Attestation"
+              value={(data as Settings).attestation?.enabled ? "on" : "off"}
+            />
+            <Row
+              label="Lineage"
+              value={
+                (data as Settings).lineage?.enabled
+                  ? ((data as Settings).lineage?.formats || []).join(", ")
+                  : "off"
+              }
             />
           </dl>
         </section>

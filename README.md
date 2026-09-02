@@ -171,7 +171,7 @@ npm install && npm run dev
 
 Open http://localhost:3000 — graph, builds, experiments, registry promote, cache, settings.
 
-### Team & production (v1.5)
+### Team & production (v1.5+)
 
 ```bash
 # Shared S3 cache for CI + laptops
@@ -195,7 +195,33 @@ aimake notify-test --event fail
 aimake secrets                    # lists loaded key names only
 ```
 
-See [CHANGELOG.md](CHANGELOG.md) for `cache.remote.team_id`, `registry.remote`, `policy`, `notifications`, `schedule`, and `secrets` YAML.
+### Trust & correctness (v1.6)
+
+```bash
+aimake probe                      # external model drift
+aimake repro --format markdown    # fingerprints, git, attestations
+aimake lineage --format openlineage --format mlflow
+```
+
+```yaml
+external:
+  - name: llm
+    provider: openai
+    model: gpt-4o
+    revision: "…"
+    probe: true
+    probe_mode: warn   # or invalidate
+validation:
+  command: python scripts/check_eval.py
+attestation:
+  enabled: true
+lineage:
+  enabled: true
+  formats: [openlineage, mlflow]
+  auto_export_on_build: true
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for full YAML surfaces.
 
 ### GitHub Action
 

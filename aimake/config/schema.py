@@ -48,6 +48,18 @@ class ExternalDependencyConfig(BaseModel):
     model: str | None = None
     revision: str | None = None
     volatile: bool = False
+    # #19 — optional live drift probe
+    probe: bool = False
+    probe_mode: str = "warn"  # warn | invalidate
+    probe_url: str | None = None  # override URL for etag/HEAD
+
+    @field_validator("probe_mode")
+    @classmethod
+    def normalize_probe_mode(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ("warn", "invalidate"):
+            raise ValueError("external.probe_mode must be 'warn' or 'invalidate'")
+        return v
 
 
 class OutputValidationConfig(BaseModel):
@@ -59,6 +71,41 @@ class OutputValidationConfig(BaseModel):
     min_rows: int | None = None
     min_value: dict[str, float] = Field(default_factory=dict)
     revalidate_on_cache_hit: bool = True
+    # #20 — custom semantic check
+    command: str | None = None
+    timeout_seconds: int = 120
+
+
+class AttestationConfig(BaseModel):
+    """SLSA-style build provenance / output attestation."""
+
+    enabled: bool = False
+    write_sidecars: bool = True  # .aimake/attestations/
+    embed_in_metadata: bool = True
+    include_environment: bool = True
+
+
+class LineageConfig(BaseModel):
+    """Lineage export targets."""
+
+    enabled: bool = False
+    formats: list[str] = Field(default_factory=lambda: ["openlineage"])
+    auto_export_on_build: bool = False
+    output_dir: str = ".aimake/lineage"
+
+    @field_validator("formats")
+    @classmethod
+    def normalize_formats(cls, v: list[str]) -> list[str]:
+        allowed = {"openlineage", "mlflow", "wandb"}
+        out = []
+        for item in v:
+            item = item.lower()
+            if item not in allowed:
+                raise ValueError(
+                    f"Unknown lineage format '{item}'. Use: {', '.join(sorted(allowed))}"
+                )
+            out.append(item)
+        return out
 
 
 class CostEstimateConfig(BaseModel):
@@ -600,6 +647,8 @@ class AimakeConfig(BaseModel):
     notifications: NotificationsConfig | None = None
     schedule: ScheduleConfig | None = None
     secrets: SecretsConfig = Field(default_factory=SecretsConfig)
+    attestation: AttestationConfig = Field(default_factory=AttestationConfig)
+    lineage: LineageConfig = Field(default_factory=LineageConfig)
 
     @model_validator(mode="after")
     def validate_artifacts(self) -> AimakeConfig:

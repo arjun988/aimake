@@ -60,12 +60,14 @@ class Planner:
         *,
         outputs_exist: dict[str, bool] | None = None,
         outputs_valid: dict[str, bool] | None = None,
+        cache_hits: dict[str, bool] | None = None,
         force: set[str] | None = None,
     ) -> dict[str, ArtifactStatus]:
         """Determine status for each artifact based on fingerprints."""
         force = force or set()
         outputs_exist = outputs_exist or {}
         outputs_valid = outputs_valid or {}
+        cache_hits = cache_hits or {}
         statuses: dict[str, ArtifactStatus] = {}
 
         for node in graph:
@@ -77,9 +79,15 @@ class Planner:
                 statuses[name] = ArtifactStatus.STALE
                 continue
 
-            # Check if any dependency is stale/changed
+            # Check if any dependency is stale/changed/failed (not CACHED — restore is fine)
             dep_stale = any(
-                statuses.get(dep) in (ArtifactStatus.STALE, ArtifactStatus.CHANGED, ArtifactStatus.FAILED)
+                statuses.get(dep)
+                in (
+                    ArtifactStatus.STALE,
+                    ArtifactStatus.CHANGED,
+                    ArtifactStatus.FAILED,
+                    ArtifactStatus.UNKNOWN,
+                )
                 for dep in node.dependencies
             )
 
@@ -90,7 +98,11 @@ class Planner:
             elif current_fp != stored_fp:
                 statuses[name] = ArtifactStatus.CHANGED
             elif not outputs_exist.get(name, True):
-                statuses[name] = ArtifactStatus.STALE
+                # #23 — restore from cache when blobs exist instead of full rebuild
+                if cache_hits.get(name):
+                    statuses[name] = ArtifactStatus.CACHED
+                else:
+                    statuses[name] = ArtifactStatus.STALE
             elif outputs_valid.get(name) is False:
                 statuses[name] = ArtifactStatus.STALE
             elif dep_stale:

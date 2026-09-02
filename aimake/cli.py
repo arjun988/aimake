@@ -515,6 +515,80 @@ def doctor(
 
 
 @app.command()
+def repro(
+    format: str = typer.Option(
+        "markdown", "--format", "-f", help="markdown | json | pdf"
+    ),
+    output: Optional[Path] = typer.Option(None, "--output", "-o"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Generate a reproducibility report (env, fingerprints, drift, attestations)."""
+    try:
+        proj = _load_project(config, project=project)
+        path = proj.repro_report(fmt=format.lower(), output=output)
+        console.print_success(f"Wrote {path}")
+        proj.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def lineage(
+    formats: Optional[list[str]] = typer.Option(
+        None, "--format", "-f", help="openlineage, mlflow, and/or wandb"
+    ),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", "-o"),
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Export pipeline lineage (OpenLineage / MLflow / W&B graph JSON)."""
+    try:
+        proj = _load_project(config, project=project)
+        written = proj.export_lineage(formats=formats, output_dir=output_dir)
+        if not written:
+            console.print_warning("No lineage files written (check --format)")
+        for fmt, path in written.items():
+            console.print_success(f"{fmt}: {path}")
+        proj.close()
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def probe(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Probe external model/API deps for revision drift."""
+    try:
+        proj = _load_project(config, project=project)
+        findings = proj.probe_external_drift()
+        if not findings:
+            console.print_info("No external deps with probe: true")
+        drifted = False
+        for f in findings:
+            label = f"{f['artifact']}/{f['name']}"
+            if not f.get("ok"):
+                console.print_warning(f"{label}: probe failed — {f.get('detail')}")
+            elif f.get("drifted"):
+                drifted = True
+                console.print_warning(
+                    f"{label}: DRIFT pinned={f.get('pinned')} live={f.get('live')}"
+                )
+            else:
+                console.print_success(f"{label}: ok ({f.get('live') or f.get('pinned')})")
+        proj.close()
+        if drifted:
+            raise typer.Exit(code=2)
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def eval(
     check: bool = typer.Option(False, "--check", help="Check quality gates"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),

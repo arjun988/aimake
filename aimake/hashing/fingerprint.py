@@ -86,15 +86,25 @@ class Fingerprinter:
         if artifact.metadata:
             parts.append(f"metadata:{json.dumps(artifact.metadata, sort_keys=True)}")
 
-        # External dependencies (pinned model/API provenance)
+        # External dependencies (pinned model/API provenance + optional live probe)
         if artifact.external:
+            from aimake.hashing.external_probe import (
+                effective_revision,
+                probe_external,
+            )
+
             ext_parts = []
             for dep in sorted(artifact.external, key=lambda d: d.name):
                 if dep.volatile:
                     continue
+                probe = probe_external(dep) if dep.probe else None
+                rev = effective_revision(dep, probe)
                 ext_parts.append(
-                    f"{dep.name}:{dep.provider or ''}:{dep.model or ''}:{dep.revision or ''}"
+                    f"{dep.name}:{dep.provider or ''}:{dep.model or ''}:{rev or ''}"
                 )
+                if probe and probe.drifted and dep.probe_mode == "warn" and self.debug:
+                    # Surface via debug fingerprint parts only; doctor/repro report drift
+                    ext_parts.append(f"drift-warn:{dep.name}:{probe.live_revision}")
             if ext_parts:
                 parts.append(f"external:{';'.join(ext_parts)}")
 

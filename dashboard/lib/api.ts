@@ -184,7 +184,29 @@ export const api = {
     notifications: { slack: boolean; discord: boolean; email: boolean };
     schedule_jobs: string[];
     secrets: { dotenv: boolean; providers: string[] };
+    attestation?: { enabled: boolean; write_sidecars: boolean };
+    lineage?: { enabled: boolean; formats: string[]; auto_export_on_build: boolean };
   }>,
+  repro: () => request<Record<string, unknown>>("/api/repro") as Promise<any>,
+  lineage: () =>
+    request<{
+      nodes: {
+        name: string;
+        type: string;
+        fingerprint?: string;
+        status?: string;
+        depends_on: string[];
+      }[];
+      edges: { from: string; to: string }[];
+      formats: string[];
+      enabled: boolean;
+    }>("/api/lineage"),
+  attestations: () =>
+    request<{ enabled: boolean; entries: { artifact: string; path: string | null }[] }>(
+      "/api/attestations",
+    ),
+  probe: () =>
+    request<{ findings: Record<string, unknown>[]; drifted: boolean }>("/api/probe"),
   plan: () => request<{ entries: PlanEntry[]; estimated_total_cost_usd: number }>("/api/plan"),
   health: () => request<{ ok: boolean }>("/api/health"),
 };
