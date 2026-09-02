@@ -1,0 +1,179 @@
+name: aimake
+description: Run incremental aimake builds with content-addressable cache and PR summary
+author: arjun988
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  config:
+    description: Path to aimake.yaml
+    required: false
+    default: aimake.yaml
+  targets:
+    description: Space-separated build targets (optional)
+    required: false
+    default: ""
+  python-version:
+    description: Python version
+    required: false
+    default: "3.11"
+  extra:
+    description: pip extra(s), e.g. s3 or all
+    required: false
+    default: ""
+  cache-path:
+    description: Path to .aimake directory for actions/cache
+    required: false
+    default: .aimake
+  post-comment:
+    description: Post PR summary comment (true/false)
+    required: false
+    default: "true"
+
+outputs:
+  success:
+    description: Whether the build succeeded
+    value: ${{ steps.build.outputs.success }}
+  rebuilt:
+    description: Number of artifacts rebuilt
+    value: ${{ steps.build.outputs.rebuilt }}
+  reused:
+    description: Number of artifacts reused from cache
+    value: ${{ steps.build.outputs.reused }}
+  estimated-cost-usd:
+    description: Estimated cost from plan before build
+    value: ${{ steps.plan.outputs.estimated_cost_usd }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install aimake
+      shell: bash
+      run: |
+        EXTRA="${{ inputs.extra }}"
+        if [ -n "$EXTRA" ]; then
+          pip install "aimake[$EXTRA]"
+        else
+          pip install aimake
+        fi
+        aimake --version
+
+    - name: Restore aimake cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ inputs.cache-path }}
+          aimake.lock
+        key: aimake-${{ runner.os }}-${{ hashFiles('aimake.yaml', 'aimake.lock', inputs.config) }}
+        restore-keys: |
+          aimake-${{ runner.os }}-
+
+    - name: Plan (with cost estimate)
+      id: plan
+      shell: bash
+      run: |
+        TARGETS="${{ inputs.targets }}"
+        CONFIG="${{ inputs.config }}"
+        PLAN_ARGS=""
+        if [ -n "$TARGETS" ]; then
+          PLAN_ARGS="$TARGETS"
+        fi
+        aimake plan $PLAN_ARGS --config "$CONFIG" --format json > plan.json
+        python - <<'PY'
+        import json, os
+        plan = json.load(open("plan.json"))
+        cost = plan.get("estimated_total_cost_usd") or 0
+        to_run = len(plan.get("to_run") or [])
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"estimated_cost_usd={cost}\n")
+            f.write(f"to_run={to_run}\n")
+        print(f"Plan: {to_run} step(s) to run, est. ${cost:.2f}")
+        PY
+
+    - name: Build
+      id: build
+      shell: bash
+      run: |
+        TARGETS="${{ inputs.targets }}"
+        CONFIG="${{ inputs.config }}"
+        BUILD_ARGS=""
+        if [ -n "$TARGETS" ]; then
+          BUILD_ARGS="$TARGETS"
+        fi
+        set +e
+        aimake build $BUILD_ARGS --config "$CONFIG"
+        CODE=$?
+        set -e
+        aimake eval --check --config "$CONFIG" || true
+        if [ $CODE -ne 0 ]; then
+          echo "success=false" >> "$GITHUB_OUTPUT"
+          exit $CODE
+        fi
+        echo "success=true" >> "$GITHUB_OUTPUT"
+        echo "rebuilt=0" >> "$GITHUB_OUTPUT"
+        echo "reused=0" >> "$GITHUB_OUTPUT"
+
+    - name: Build summary
+      if: always()
+      shell: bash
+      run: |
+        python - <<'PY'
+        import json, os
+        plan = json.load(open("plan.json"))
+        to_run = plan.get("to_run") or []
+        cost = plan.get("estimated_total_cost_usd") or 0
+        summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+        if not summary:
+            raise SystemExit(0)
+        lines = [
+            "## aimake build",
+            "",
+            f"- **Steps to run:** {len(to_run)}",
+            f"- **Estimated cost:** ${cost:.2f}",
+            "",
+            "### Plan",
+        ]
+        for e in plan.get("entries", []):
+            mark = "→" if e.get("action") == "run" else "✓"
+            ec = e.get("estimated_cost_usd")
+            extra = f" (~${ec:.2f})" if ec else ""
+            lines.append(f"- {mark} `{e['name']}` ({e['action']}){extra}")
+        with open(summary, "a") as f:
+            f.write("\n".join(lines) + "\n")
+        PY
+
+    - name: Post PR comment
+      if: github.event_name == 'pull_request' && inputs.post-comment == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const plan = JSON.parse(fs.readFileSync('plan.json', 'utf8'));
+          const toRun = plan.to_run || [];
+          const cost = plan.estimated_total_cost_usd || 0;
+          const body = [
+            '### aimake CI',
+            '',
+            `- **Rebuild:** ${toRun.length} step(s)`,
+            `- **Estimated cost:** $${cost.toFixed(2)}`,
+            '',
+            '<details><summary>Plan</summary>',
+            '',
+            '```',
+            ...plan.entries.map(e => `${e.action.padEnd(7)} ${e.name}`),
+            '```',
+            '',
+            '</details>',
+          ].join('\n');
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body,
+          });

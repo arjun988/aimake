@@ -24,6 +24,7 @@ from aimake.models import (
     BuildAction,
     BuildPlan,
     BuildResult,
+    ExplainDetail,
     ExplainResult,
 )
 from aimake.state.database import StateDatabase
@@ -142,7 +143,7 @@ class BuildRunner:
         self._enrich_plan_costs(build_plan, graph)
         return build_plan
 
-    def explain(self, target: str) -> ExplainResult:
+    def explain(self, target: str, *, tree: bool = False) -> ExplainResult:
         if target not in self.graph:
             raise ValueError(f"Unknown artifact: '{target}'")
 
@@ -165,9 +166,9 @@ class BuildRunner:
             return ExplainResult(
                 target=target,
                 conclusion=f"{target} is up to date — no rebuild needed.",
+                tree=self._build_explain_tree(target) if tree else [],
             )
 
-        # Walk dependency chain to find root cause
         def find_cause(name: str, visited: set[str]) -> str | None:
             if name in visited:
                 return None
@@ -187,6 +188,13 @@ class BuildRunner:
                 if not node.dependencies:
                     return name
 
+            outputs_exist = self._check_outputs_exist(self.graph.subgraph_for_targets([name]))
+            outputs_valid = self._check_outputs_valid(self.graph.subgraph_for_targets([name]))
+            if not outputs_exist.get(name, True):
+                return name
+            if outputs_valid.get(name) is False:
+                return name
+
             for dep in node.dependencies:
                 cause = find_cause(dep, visited)
                 if cause:
@@ -196,7 +204,8 @@ class BuildRunner:
         cause = find_cause(target, set())
         if cause:
             chain = self._build_chain(cause, target)
-            root_cause = f"{cause} changed"
+            reason, _ = self._explain_reason(cause, stored)
+            root_cause = reason or f"{cause} changed"
             old_fp = stored.get(cause)
             new_fp = self._fingerprints.get(cause)
 
@@ -206,8 +215,11 @@ class BuildRunner:
         elif cause and cause != target:
             conclusion = (
                 f"{target} depends on {cause}. "
-                f"{cause} changed. {conclusion}"
+                f"{root_cause}. {conclusion}"
             )
+
+        cost, tokens = self._estimate_cost(self.graph.get(target))
+        explain_tree = self._build_explain_tree(target) if tree else []
 
         return ExplainResult(
             target=target,
@@ -216,7 +228,82 @@ class BuildRunner:
             old_fingerprint=old_fp,
             new_fingerprint=new_fp,
             conclusion=conclusion,
+            tree=explain_tree,
+            estimated_cost_usd=cost,
+            estimated_tokens=tokens,
         )
+
+    def _explain_reason(self, name: str, stored: dict[str, str]) -> tuple[str, list[str]]:
+        node = self.graph.get(name)
+        current = self._fingerprints.get(name, "")
+        stored_f = stored.get(name, "")
+        notes: list[str] = []
+
+        if current != stored_f and stored_f:
+            return (f"{name}: fingerprint changed", notes)
+
+        outputs_exist = self._check_outputs_exist(self.graph.subgraph_for_targets([name]))
+        if not outputs_exist.get(name, True):
+            return (f"{name}: declared outputs missing", notes)
+
+        outputs_valid = self._check_outputs_valid(self.graph.subgraph_for_targets([name]))
+        if outputs_valid.get(name) is False:
+            validator = OutputValidator(self.project_root)
+            metrics_file = node.config.metrics.file if node.config.metrics else None
+            vr = validator.validate(
+                node.config.outputs,
+                node.config.validation,
+                metrics_file=metrics_file,
+            )
+            return (f"{name}: output validation failed", vr.errors)
+
+        for dep in node.config.external:
+            if not dep.volatile:
+                notes.append(
+                    f"external {dep.name}: {dep.provider or '?'} / "
+                    f"{dep.model or '?'} @ {dep.revision or 'unpinned'}"
+                )
+
+        if not stored_f:
+            return (f"{name}: never built", notes)
+
+        return (f"{name}: dependency chain stale", notes)
+
+    def _build_explain_tree(self, target: str) -> list[ExplainDetail]:
+        stored = self.cache.get_stored_fingerprints()
+        subgraph = self.graph.subgraph_for_targets([target])
+        details: list[ExplainDetail] = []
+
+        for node in subgraph:
+            name = node.name
+            status = self._statuses.get(name, ArtifactStatus.UNKNOWN)
+            reason, external_notes = self._explain_reason(name, stored)
+
+            validation_errors: list[str] = []
+            if node.config.validation:
+                validator = OutputValidator(self.project_root)
+                metrics_file = node.config.metrics.file if node.config.metrics else None
+                vr = validator.validate(
+                    node.config.outputs,
+                    node.config.validation,
+                    metrics_file=metrics_file,
+                )
+                if not vr.valid:
+                    validation_errors = vr.errors
+
+            cost, tokens = self._estimate_cost(node)
+            details.append(
+                ExplainDetail(
+                    name=name,
+                    status=status.value,
+                    reason=reason,
+                    estimated_cost_usd=cost if status != ArtifactStatus.UP_TO_DATE else None,
+                    estimated_tokens=tokens if status != ArtifactStatus.UP_TO_DATE else None,
+                    validation_errors=validation_errors,
+                    external_notes=external_notes,
+                )
+            )
+        return details
 
     def _build_chain(self, start: str, end: str) -> list[str]:
         """Build dependency chain from start to end."""

@@ -176,18 +176,39 @@ def print_metrics(metrics: dict) -> None:
     rich_console.print(table)
 
 
-def print_explain(result: ExplainResult) -> None:
+def print_explain(result: ExplainResult, *, tree: bool = False) -> None:
     rich_console.print("\n[bold]WHY IS THIS TARGET STALE?[/bold]\n")
     rich_console.print(f"[cyan]{result.target}[/cyan]")
 
-    if result.chain:
-        for i, name in enumerate(result.chain):
-            prefix = "   ↓" if i < len(result.chain) - 1 else ""
-            rich_console.print(f"   ↓")
-            rich_console.print(f"depends on [cyan]{name}[/cyan]")
+    if tree and result.tree:
+        rich_console.print("\n[bold]Dependency tree:[/bold]\n")
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Artifact")
+        table.add_column("Status")
+        table.add_column("Reason")
+        table.add_column("Est. cost", justify="right")
+        for node in result.tree:
+            cost = f"${node.estimated_cost_usd:.2f}" if node.estimated_cost_usd else "-"
+            table.add_row(node.name, node.status.upper(), node.reason[:60], cost)
+            for err in node.validation_errors:
+                table.add_row("", "", f"[red]validation: {err}[/red]", "")
+            for note in node.external_notes:
+                table.add_row("", "", f"[dim]{note}[/dim]", "")
+        rich_console.print(table)
+    elif result.chain:
+        for _ in result.chain:
+            rich_console.print("   ↓")
+            rich_console.print(f"depends on [cyan]{result.chain[0]}[/cyan]")
 
     if result.root_cause:
         rich_console.print(f"\n[yellow]{result.root_cause}[/yellow]")
+
+    if result.estimated_cost_usd is not None:
+        rich_console.print(
+            f"\n[bold]Estimated rebuild cost:[/bold] ${result.estimated_cost_usd:.2f}"
+        )
+    if result.estimated_tokens is not None:
+        rich_console.print(f"[bold]Estimated tokens:[/bold] {result.estimated_tokens:,}")
 
     if result.old_fingerprint:
         rich_console.print(f"\nOld fingerprint:\n  {result.old_fingerprint[:40]}...")

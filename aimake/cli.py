@@ -57,15 +57,34 @@ def main(
 def init(
     path: Optional[Path] = typer.Option(None, "--path", "-p", help="Project directory"),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="Project name"),
+    from_source: Optional[str] = typer.Option(
+        None,
+        "--from",
+        help="Generate from existing layout: makefile, dvc, prefect, airflow-dag",
+    ),
 ) -> None:
     """Initialize a new aimake project."""
+    from aimake.init.generators import supported_sources
+
     console.print_header()
     root = path or Path.cwd()
-    config_path = Project.init(root, name=name)
+    try:
+        config_path = Project.init(root, name=name, from_source=from_source)
+    except (FileNotFoundError, ValueError) as e:
+        console.print_error(str(e))
+        if from_source:
+            console.print_info(f"Supported --from values: {', '.join(supported_sources())}")
+        raise typer.Exit(code=1)
+
     console.print_success(f"Created {config_path}")
     console.print_success(f"Created {root / '.aimake'}/")
-    console.print_success(f"Created {root / 'build'}/")
-    console.print_info("\nReview aimake.yaml before running builds.")
+    if not from_source:
+        console.print_success(f"Created {root / 'build'}/")
+    if from_source:
+        console.print_info(f"\nGenerated aimake.yaml from [bold]{from_source}[/bold]")
+        console.print_warning("Review generated commands before running builds.")
+    else:
+        console.print_info("\nReview aimake.yaml before running builds.")
     console.print_info("aimake.yaml contains executable commands.")
     console.print_info("\nNext steps:")
     console.print_info("  aimake plan")
@@ -161,14 +180,38 @@ def plan(
     targets: Optional[list[str]] = typer.Argument(None, help="Specific targets"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     debug: bool = typer.Option(False, "--debug"),
+    format: str = typer.Option("text", "--format", "-f", help="Output: text or json"),
 ) -> None:
     """Show what would happen without executing."""
     try:
         project = _load_project(config, debug=debug)
+        plan = project.plan(targets)
+
+        if format == "json":
+            payload = {
+                "entries": [
+                    {
+                        "name": e.name,
+                        "action": e.action.value,
+                        "status": e.status.value,
+                        "reason": e.reason,
+                        "estimated_cost_usd": e.estimated_cost_usd,
+                        "estimated_tokens": e.estimated_tokens,
+                    }
+                    for e in plan.entries
+                ],
+                "to_run": plan.to_run,
+                "to_skip": plan.to_skip,
+                "to_restore": plan.to_restore,
+                "estimated_total_cost_usd": plan.estimated_total_cost_usd,
+                "estimated_total_tokens": plan.estimated_total_tokens,
+            }
+            typer.echo(json.dumps(payload, indent=2))
+            project.close()
+            return
+
         console.print_header("BUILD PLAN")
         console.print()
-
-        plan = project.plan(targets)
         for entry in plan.entries:
             if entry.action == BuildAction.SKIP:
                 symbol = console.SYMBOL_CACHED
@@ -329,16 +372,80 @@ def explain(
     target: str = typer.Argument(..., help="Target artifact"),
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     debug: bool = typer.Option(False, "--debug"),
+    tree: bool = typer.Option(False, "--tree", help="Show dependency tree with costs"),
+    format: str = typer.Option("text", "--format", "-f", help="Output: text or json"),
 ) -> None:
     """Explain why a target is stale."""
     try:
         project = _load_project(config, debug=debug)
-        result = project.explain(target)
-        console.print_explain(result)
+        result = project.explain(target, tree=tree or format == "json")
+
+        if format == "json":
+            payload = {
+                "target": result.target,
+                "chain": result.chain,
+                "root_cause": result.root_cause,
+                "conclusion": result.conclusion,
+                "old_fingerprint": result.old_fingerprint,
+                "new_fingerprint": result.new_fingerprint,
+                "estimated_cost_usd": result.estimated_cost_usd,
+                "estimated_tokens": result.estimated_tokens,
+                "tree": [
+                    {
+                        "name": n.name,
+                        "status": n.status,
+                        "reason": n.reason,
+                        "estimated_cost_usd": n.estimated_cost_usd,
+                        "estimated_tokens": n.estimated_tokens,
+                        "validation_errors": n.validation_errors,
+                        "external_notes": n.external_notes,
+                    }
+                    for n in result.tree
+                ],
+            }
+            typer.echo(json.dumps(payload, indent=2))
+        else:
+            console.print_explain(result, tree=tree)
+
         project.close()
     except (ConfigError, ValueError) as e:
         console.print_error(str(e))
         raise typer.Exit(code=1)
+
+
+@app.command()
+def watch(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    interval: float = typer.Option(2.0, "--interval", "-i", help="Poll interval (seconds)"),
+    build: bool = typer.Option(False, "--build", "-b", help="Auto-build on change"),
+) -> None:
+    """Watch inputs and re-plan (optionally rebuild) when files change."""
+    from aimake.watch import collect_watch_paths, watch as run_watch
+
+    project = None
+    try:
+        project = _load_project(config)
+        paths = collect_watch_paths(project.project_root, project.config)
+        console.print_header("AIMAKE WATCH")
+        console.print_info(f"Watching {len(paths)} path(s) every {interval}s")
+        console.print_info("Press Ctrl+C to stop\n")
+
+        def on_change() -> None:
+            plan = project.plan()
+            console.print("\n[bold yellow]Change detected[/bold yellow]")
+            console.print_build_plan(plan)
+            if not plan.to_run:
+                console.print_success("Nothing to rebuild")
+
+        run_watch(project, interval=interval, build=build, on_change=on_change)
+    except KeyboardInterrupt:
+        console.print_info("\nStopped.")
+    except (ConfigError, ValueError) as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+    finally:
+        if project is not None:
+            project.close()
 
 
 @app.command()

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-02
+
+### Added
+- `aimake init --from` generators: `makefile`, `dvc`, `prefect`, `airflow-dag`
+- Official GitHub Action (`.github/actions/aimake`) with cache, plan JSON, PR comments
+- `aimake watch` — poll inputs and re-plan / optional auto-build
+- `aimake explain --tree` and `--format json` with cost, validation, external deps
+- `aimake plan --format json` for CI integrations
+- [docs/COMPARISON.md](docs/COMPARISON.md) and [docs/ADAPTERS.md](docs/ADAPTERS.md)
+
 ## [1.2.0] - 2026-09-02
 
 ### Added
@@ -88,7 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thread-safe SQLite for parallel builds
 - Windows-compatible cache atomic writes and console UTF-8 output
 
-[Unreleased]: https://github.com/arjun988/aimake/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/arjun988/aimake/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/arjun988/aimake/releases/tag/v1.3.0
 [1.2.0]: https://github.com/arjun988/aimake/releases/tag/v1.2.0
 [1.1.0]: https://github.com/arjun988/aimake/releases/tag/v1.1.0
 [1.0.0]: https://github.com/arjun988/aimake/releases/tag/v1.0.0

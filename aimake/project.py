@@ -28,9 +28,10 @@ from aimake.execution.runner import BuildRunner
 from aimake.graph.dag import Graph, GraphError
 from aimake.lock import generate_lock, read_lock, write_lock
 from aimake.metrics.quality import QualityGateChecker
-from aimake.models import ArtifactStatus, BuildPlan, BuildResult, ExplainResult
+from aimake.models import ArtifactStatus, BuildPlan, BuildResult, ExplainDetail, ExplainResult
 from aimake.diff.engine import DiffEngine
 from aimake.diff.snapshots import extract_snapshot
+from aimake.init.generators import generate_from
 from aimake.scheduling.resources import GPUDetector
 from aimake.plugins.loader import load_plugins
 
@@ -75,17 +76,30 @@ class Project:
         return cls(config, config_path, debug=debug, verbose=verbose)
 
     @classmethod
-    def init(cls, directory: Path | None = None, *, name: str | None = None) -> Path:
+    def init(
+        cls,
+        directory: Path | None = None,
+        *,
+        name: str | None = None,
+        from_source: str | None = None,
+    ) -> Path:
         """Initialize a new aimake project."""
         root = (directory or Path.cwd()).resolve()
         project_name = name or root.name
 
-        config_content = INIT_TEMPLATE.format(project_name=project_name)
+        if from_source:
+            config_content = generate_from(from_source, root, project_name)
+        else:
+            config_content = INIT_TEMPLATE.format(project_name=project_name)
         config_path = root / "aimake.yaml"
         config_path.write_text(config_content, encoding="utf-8")
 
         (root / AIMAKE_DIR).mkdir(exist_ok=True)
         (root / BUILD_DIR).mkdir(exist_ok=True)
+
+        if from_source:
+            return config_path
+
         (root / "src").mkdir(exist_ok=True)
         (root / "data").mkdir(exist_ok=True)
         (root / "prompts").mkdir(exist_ok=True)
@@ -159,9 +173,9 @@ class Project:
 
         return result
 
-    def explain(self, target: str) -> ExplainResult:
+    def explain(self, target: str, *, tree: bool = False) -> ExplainResult:
         """Explain why a target is stale."""
-        return self.runner.explain(target)
+        return self.runner.explain(target, tree=tree)
 
     def clean(
         self,

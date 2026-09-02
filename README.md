@@ -12,7 +12,7 @@
 
 *Like `make` + `git` + DVC — but designed for AI/ML pipelines.*
 
-[Installation](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Configuration](#configuration) · [Examples](examples/rag/)
+[Installation](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Migration](#migration) · [Comparison](docs/COMPARISON.md) · [Adapters](docs/ADAPTERS.md)
 
 </div>
 
@@ -140,6 +140,33 @@ aimake build         # incremental build
 aimake status        # artifact freshness
 aimake graph         # dependency DAG
 ```
+
+### Migrate existing projects
+
+```bash
+aimake init --from=makefile
+aimake init --from=dvc
+aimake init --from=prefect
+aimake init --from=airflow-dag
+```
+
+### Watch mode
+
+```bash
+aimake watch              # re-plan on file changes
+aimake watch --build      # auto-rebuild stale steps
+```
+
+### GitHub Action
+
+```yaml
+- uses: arjun988/aimake/.github/actions/aimake@v1
+  with:
+    config: aimake.yaml
+    post-comment: "true"
+```
+
+See [docs/COMPARISON.md](docs/COMPARISON.md) and [docs/ADAPTERS.md](docs/ADAPTERS.md).
 
 ---
 

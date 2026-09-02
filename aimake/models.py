@@ -111,6 +111,19 @@ class BuildResult:
 
 
 @dataclass
+class ExplainDetail:
+    """One node in an explain tree."""
+
+    name: str
+    status: str
+    reason: str = ""
+    estimated_cost_usd: float | None = None
+    estimated_tokens: int | None = None
+    validation_errors: list[str] = field(default_factory=list)
+    external_notes: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ExplainResult:
     """Explanation of why an artifact is stale."""
 
@@ -120,6 +133,9 @@ class ExplainResult:
     old_fingerprint: str | None = None
     new_fingerprint: str | None = None
     conclusion: str = ""
+    tree: list[ExplainDetail] = field(default_factory=list)
+    estimated_cost_usd: float | None = None
+    estimated_tokens: int | None = None
 
 
 @dataclass

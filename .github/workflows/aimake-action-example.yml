@@ -1,0 +1,27 @@
+# Example: use the official aimake GitHub Action in your repo
+name: aimake CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arjun988/aimake/.github/actions/aimake@v1
+        with:
+          config: examples/rag/aimake.yaml
+          extra: all
+          post-comment: "true"
+
+      # Or run locally in the same job:
+      # - uses: actions/setup-python@v5
+      #   with:
+      #     python-version: "3.11"
+      # - run: pip install aimake
+      # - run: aimake build
+      #   working-directory: examples/rag
