@@ -1,0 +1,41 @@
+{
+  "name": "@aimake/sdk",
+  "version": "1.7.0",
+  "description": "TypeScript client for aimake serve — mirrors the Python Project SDK",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arjun988/aimake.git",
+    "directory": "sdk/typescript"
+  },
+  "keywords": [
+    "aimake",
+    "mlops",
+    "build",
+    "sdk"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

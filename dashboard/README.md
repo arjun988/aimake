@@ -6,10 +6,14 @@ Professional Next.js + Tailwind control plane for aimake pipelines.
 
 - **Overview** — project health, rebuild count, estimated cost, recent builds
 - **Graph** — interactive dependency DAG with live artifact status
+- **Lineage** — OpenLineage / MLflow / W&B style artifact graph
 - **Builds** — current plan + build history
 - **Experiments** — trial list + build compare (metric deltas)
-- **Registry** — list versions, promote to staging/production, tag `best`
-- **Cache** — local / remote status
+- **Registry** — list versions, promote (policy-gated), tag, remote push
+- **Cache** — local / remote / team cache status
+- **Repro** — fingerprints, git, drift, attestations
+- **Developer** — Python/TS SDK snippets, Docker image, TUI keys
+- **Settings** — notifications, secrets, policy, attestation, lineage
 
 ## Prerequisites
 

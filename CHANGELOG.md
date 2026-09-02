@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-02
+
+### Added
+- **Docker image (#25):** `Dockerfile` + `.github/workflows/docker.yml` → `ghcr.io/<owner>/aimake`
+- **Interactive TUI (#28):** `aimake tui` — Rich full-screen plan / build / metrics
+- **SDK parity (#30):** `aimake.sdk.Aimake` / `load()`, TypeScript `@aimake/sdk` in `sdk/typescript/`, [docs/SDK.md](docs/SDK.md)
+- Dashboard **Developer** page + `/api/developer`
+
 ## [1.6.0] - 2026-09-02
 
 ### Added

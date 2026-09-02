@@ -13,6 +13,7 @@ const NAV = [
   { href: "/registry", label: "Registry", icon: RegistryIcon },
   { href: "/cache", label: "Cache", icon: CacheIcon },
   { href: "/repro", label: "Repro", icon: ReproIcon },
+  { href: "/developer", label: "Developer", icon: DevIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -154,6 +155,14 @@ function ReproIcon({ active }: { active: boolean }) {
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className={active ? "text-brand-500" : ""}>
       <path d="M3 3.5h10v9H3z" stroke="currentColor" strokeWidth="1.4" />
       <path d="M5 6h6M5 8.5h6M5 11h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DevIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className={active ? "text-brand-500" : ""}>
+      <path d="M5 4 L2.5 8 L5 12M11 4 L13.5 8 L11 12M9 3 L7 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

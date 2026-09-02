@@ -169,7 +169,7 @@ cp .env.local.example .env.local
 npm install && npm run dev
 ```
 
-Open http://localhost:3000 — graph, builds, experiments, registry promote, cache, settings.
+Open http://localhost:3000 — graph, builds, experiments, registry, cache, settings, repro, lineage, developer.
 
 ### Team & production (v1.5+)
 
@@ -1027,17 +1027,34 @@ Models are pulled via `ollama pull` (or the Ollama HTTP API) before builds when 
 ## Python API
 
 ```python
+from aimake.sdk import Aimake
+
+with Aimake.load("aimake.yaml") as ai:
+    plan = ai.plan()
+    result = ai.build()
+    explanation = ai.explain("evaluation")
+
+# Classic Project API still works
 from aimake import Project
 
 project = Project.load("aimake.yaml")
-
-plan = project.plan()
-result = project.build()
-explanation = project.explain("evaluation")
-diff = project.diff("prompt")
-comparison = project.compare_builds("previous", "latest")
-
+project.build()
 project.close()
+```
+
+TypeScript client (talks to `aimake serve`): see [`sdk/typescript`](sdk/typescript) and [docs/SDK.md](docs/SDK.md).
+
+### Interactive TUI
+
+```bash
+aimake tui
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/arjun988/aimake:latest
+docker run --rm -v "$PWD:/workspace" -w /workspace ghcr.io/arjun988/aimake:latest build
 ```
 
 ---
@@ -1117,11 +1134,10 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 |--------|------|
 | ✅ | Core incremental builds, fingerprinting, parallel execution |
 | ✅ | S3 remote cache, GPU scheduling, distributed workers |
-| ✅ | Artifact diffs, experiment comparison, hyperparameter optimization |
-| ✅ | Bayesian/Optuna, Pareto, MLflow, early stopping, Hyperband pruning |
-| ✅ | Artifact registry, Hugging Face plugin |
-| ✅ | Weights & Biases, DVC, Docker, Ollama plugins |
-| 🔜 | Web dashboard |
+| ✅ | Artifact diffs, experiments, registry, plugins |
+| ✅ | Web dashboard + `aimake serve` |
+| ✅ | Team features, trust (attest/repro/lineage), Docker, TUI, SDKs |
+| 🔜 | Jupyter magic, plugin entry points, doctor --fix |
 
 ---
 

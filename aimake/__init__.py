@@ -9,10 +9,12 @@ from aimake.graph.dag import Graph
 from aimake.hashing.fingerprint import Fingerprinter
 from aimake.models import ArtifactState, ArtifactStatus, BuildResult
 from aimake.project import Project
+from aimake.sdk import Aimake, load
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 __all__ = [
+    "Aimake",
     "Artifact",
     "ArtifactState",
     "ArtifactStatus",
@@ -22,5 +24,6 @@ __all__ = [
     "Fingerprinter",
     "Graph",
     "Project",
+    "load",
     "__version__",
 ]

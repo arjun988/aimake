@@ -8,8 +8,8 @@ const LINKS = [
   { href: "/", label: "Home" },
   { href: "/graph", label: "Graph" },
   { href: "/lineage", label: "Lineage" },
-  { href: "/registry", label: "Registry" },
   { href: "/repro", label: "Repro" },
+  { href: "/developer", label: "Dev" },
   { href: "/settings", label: "Settings" },
 ];
 

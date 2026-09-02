@@ -449,6 +449,24 @@ def serve(
 
 
 @app.command()
+def tui(
+    config: Optional[Path] = typer.Option(None, "--config", "-c"),
+    project: Optional[str] = typer.Option(None, "--project", "-P", help=_PROJECT_HELP),
+) -> None:
+    """Interactive full-screen TUI — plan, build, and metrics."""
+    try:
+        from aimake.ui.tui import run_tui
+
+        proj = _load_project(config, project=project)
+        code = run_tui(proj)
+        proj.close()
+        raise typer.Exit(code=code)
+    except ConfigError as e:
+        console.print_error(str(e))
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def watch(
     config: Optional[Path] = typer.Option(None, "--config", "-c"),
     interval: float = typer.Option(2.0, "--interval", "-i", help="Poll interval (seconds)"),

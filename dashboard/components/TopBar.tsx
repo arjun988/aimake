@@ -36,6 +36,10 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
     title: "Lineage",
     subtitle: "OpenLineage / MLflow / W&B artifact graph",
   },
+  "/developer": {
+    title: "Developer",
+    subtitle: "Python / TypeScript SDK, Docker image, interactive TUI",
+  },
   "/settings": {
     title: "Settings",
     subtitle: "Team cache, policy, notifications, secrets",

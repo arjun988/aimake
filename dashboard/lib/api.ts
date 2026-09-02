@@ -207,6 +207,19 @@ export const api = {
     ),
   probe: () =>
     request<{ findings: Record<string, unknown>[]; drifted: boolean }>("/api/probe"),
+  developer: () =>
+    request<{
+      aimake_version: string;
+      python_sdk: { import: string; docs: string; example: string };
+      typescript_sdk: { package: string; path: string; example: string };
+      docker: {
+        image: string;
+        tags: string[];
+        run_build: string;
+        run_serve: string;
+      };
+      tui: { command: string; keys: string };
+    }>("/api/developer"),
   plan: () => request<{ entries: PlanEntry[]; estimated_total_cost_usd: number }>("/api/plan"),
   health: () => request<{ ok: boolean }>("/api/health"),
 };

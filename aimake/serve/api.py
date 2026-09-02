@@ -321,6 +321,51 @@ class DashboardAPI:
             "drifted": any(f.get("drifted") for f in findings),
         }
 
+    def developer(self) -> dict[str, Any]:
+        """SDK / Docker / TUI hints for the dashboard Developer page."""
+        from aimake import __version__
+
+        owner = "arjun988"
+        image = f"ghcr.io/{owner}/aimake"
+        return {
+            "aimake_version": __version__,
+            "python_sdk": {
+                "import": "from aimake.sdk import Aimake",
+                "docs": "docs/SDK.md",
+                "example": (
+                    "with Aimake.load('aimake.yaml') as ai:\n"
+                    "    plan = ai.plan()\n"
+                    "    result = ai.build()\n"
+                ),
+            },
+            "typescript_sdk": {
+                "package": "@aimake/sdk",
+                "path": "sdk/typescript",
+                "example": (
+                    "import { Aimake } from '@aimake/sdk';\n"
+                    "const ai = new Aimake({ baseUrl: 'http://127.0.0.1:8765' });\n"
+                    "const plan = await ai.plan();\n"
+                ),
+            },
+            "docker": {
+                "image": image,
+                "tags": ["latest", __version__, f"{__version__.rsplit('.', 1)[0]}"],
+                "run_build": (
+                    f"docker run --rm -v \"$PWD:/workspace\" -w /workspace "
+                    f"{image}:latest build"
+                ),
+                "run_serve": (
+                    f"docker run --rm -v \"$PWD:/workspace\" -w /workspace "
+                    f"-p 8765:8765 {image}:latest serve --host 0.0.0.0 --port 8765"
+                ),
+            },
+            "tui": {
+                "command": "aimake tui",
+                "keys": "↑/↓ select · b build · enter build selected · p plan · q quit",
+            },
+            "api_base": "/api",
+        }
+
     def tag(self, artifact: str, version: str, tags: list[str]) -> dict[str, Any]:
         entry = self.project.registry_tag(artifact, version, tags)
         return {
@@ -469,6 +514,8 @@ def create_handler(api: DashboardAPI) -> type[BaseHTTPRequestHandler]:
                     self._send(200, api.attestations())
                 elif path == "/api/probe":
                     self._send(200, api.probe())
+                elif path == "/api/developer":
+                    self._send(200, api.developer())
                 else:
                     self._error(404, f"Not found: {path}")
             except ValueError as e:
