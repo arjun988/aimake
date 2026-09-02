@@ -42,3 +42,9 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Frontend apps (clone repo; not part of the PyPI package)
+dashboard/node_modules/
+dashboard/.next/
+website/node_modules/
+website/.next/

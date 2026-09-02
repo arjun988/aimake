@@ -86,6 +86,33 @@ Issues = "https://github.com/arjun988/aimake/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["aimake"]
 
+# Sdist must NOT ship Next.js apps or node_modules (hundreds of MB).
+# Wheel already only contains the Python package.
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "aimake",
+  "tests",
+  "examples",
+  "docs",
+  "sdk",
+  ".github",
+  "README.md",
+  "CHANGELOG.md",
+  "LICENSE",
+  "Dockerfile",
+  ".dockerignore",
+  "IMPROVE.md",
+  "pyproject.toml",
+]
+exclude = [
+  "**/node_modules",
+  "**/.next",
+  "**/.aimake",
+  "**/__pycache__",
+  "**/*.pyc",
+  "examples/**/build",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
