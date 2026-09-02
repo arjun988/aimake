@@ -12,7 +12,7 @@
 
 *Like `make` + `git` + DVC — but designed for AI/ML pipelines.*
 
-[Docs](website/README.md) · [Installation](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Migration](#migration) · [Comparison](docs/COMPARISON.md) · [Adapters](docs/ADAPTERS.md)
+[Docs](https://aimake-doc.vercel.app/) · [Installation](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-reference) · [Migration](#migration) · [Comparison](docs/COMPARISON.md) · [Adapters](docs/ADAPTERS.md)
 
 </div>
 
@@ -159,12 +159,18 @@ aimake watch --build      # auto-rebuild stale steps
 
 ### Documentation website
 
+**Live docs:** [https://aimake-doc.vercel.app/](https://aimake-doc.vercel.app/)
+
+Full documentation (concepts, CLI, SDKs, Docker, trust, team) with search, sidebar, and dark mode.
+
+To run locally:
+
 ```bash
 cd website
 npm install && npm run dev
 ```
 
-Open http://localhost:3001 — full docs (concepts, CLI, SDKs, Docker, trust, team) with search, sidebar, and dark mode. See [website/README.md](website/README.md).
+Open http://localhost:3001. See [website/README.md](website/README.md).
 
 ### Web dashboard
 

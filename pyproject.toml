@@ -79,7 +79,7 @@ aimake = "aimake.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/arjun988/aimake"
-Documentation = "https://github.com/arjun988/aimake#readme"
+Documentation = "https://aimake-doc.vercel.app/"
 Repository = "https://github.com/arjun988/aimake"
 Issues = "https://github.com/arjun988/aimake/issues"
 
