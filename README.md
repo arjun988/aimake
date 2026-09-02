@@ -508,7 +508,51 @@ environment:
   - API_VERSION
 ```
 
-Environment variable **names** participate in fingerprints. Secret values are redacted in logs and metadata.
+Environment variable **names** participate in fingerprints by default (`environment_mode: names`). Use `environment_mode: values` when env values should invalidate the cache. Exclude volatile vars with `volatile_environment`.
+
+### External dependencies (remote models/APIs)
+
+Pin provider/model revisions so a changed API behind the same name invalidates downstream artifacts:
+
+```yaml
+artifacts:
+  embeddings:
+    external:
+      - name: openai-embeddings
+        provider: openai
+        model: text-embedding-3-small
+        revision: "2024-01"   # bump when the remote model changes
+```
+
+Mark dependencies you accept as nondeterministic with `volatile: true` (excluded from fingerprints).
+
+### Atomic outputs & validation
+
+Failed runs discard partial outputs. Successful runs validate content before caching:
+
+```yaml
+project:
+  atomic_outputs: true
+
+artifacts:
+  evaluation:
+    validation:
+      non_empty: true
+      min_size_bytes: 10
+      required_keys: [accuracy, cost_usd]
+      min_value:
+        accuracy: 0.01
+      revalidate_on_cache_hit: true
+    cost_estimate:
+      cost_usd: 0.42
+      tokens: 1200
+```
+
+Scripts can write to staged paths with `from aimake.utils.outputs import resolve_output`.
+
+`aimake plan` shows estimated **cost** and **tokens** for steps that will rebuild.
+
+Quality gates support `required: true` to fail when metrics are missing.
 
 ### Artifact types
 

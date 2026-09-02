@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-02
+
+### Added
+- External dependencies (`external` on artifacts): pin provider/model/revision; `volatile: true` to opt out
+- Environment fingerprint modes: `environment_mode: names|values`, `volatile_environment` list
+- Atomic outputs: stage → validate → promote; discard partial outputs on failure
+- `aimake.utils.resolve_output()` helper for staged artifact writes
+- Output validation (`validation` block): size, non-empty, required JSON keys, min metric values
+- Revalidation on cache hit catches silent garbage outputs with valid fingerprints
+- Plan cost estimates: `cost_estimate` per artifact; `aimake plan` shows `$` and tokens for stale steps
+- Quality gates: `required: true` fails when metric is missing
+
+### Changed
+- Default env fingerprinting uses variable names only (not live values)
+- Failed builds remove partial outputs instead of leaving corrupt artifacts
+
 ## [1.1.0] - 2026-09-01
 
 ### Added
@@ -72,7 +88,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thread-safe SQLite for parallel builds
 - Windows-compatible cache atomic writes and console UTF-8 output
 
-[Unreleased]: https://github.com/arjun988/aimake/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/arjun988/aimake/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/arjun988/aimake/releases/tag/v1.2.0
 [1.1.0]: https://github.com/arjun988/aimake/releases/tag/v1.1.0
 [1.0.0]: https://github.com/arjun988/aimake/releases/tag/v1.0.0
 [0.1.0]: https://github.com/arjun988/aimake/releases/tag/v0.1.0

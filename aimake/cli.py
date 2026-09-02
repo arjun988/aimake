@@ -176,7 +176,16 @@ def plan(
                 symbol = console.SYMBOL_REBUILD
             else:
                 symbol = console.SYMBOL_RESTORE
-            console.print(f"  {entry.name:<20} {symbol}")
+            cost_hint = ""
+            if entry.action == BuildAction.RUN and entry.estimated_cost_usd is not None:
+                cost_hint = f"  ~${entry.estimated_cost_usd:.2f}"
+            console.print(f"  {entry.name:<20} {symbol}{cost_hint}")
+
+        if plan.estimated_total_cost_usd > 0:
+            console.print(
+                f"\n[dim]Estimated cost to rebuild stale steps: "
+                f"${plan.estimated_total_cost_usd:.2f}[/dim]"
+            )
 
         project.close()
     except ConfigError as e:

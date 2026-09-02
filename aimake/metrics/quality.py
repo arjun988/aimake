@@ -14,9 +14,11 @@ class QualityGateFailure:
     metric: str
     value: float
     threshold: float
-    comparison: str  # "minimum" or "maximum"
+    comparison: str  # "minimum", "maximum", or "required"
 
     def __str__(self) -> str:
+        if self.comparison == "required":
+            return f"{self.metric}:\n  missing (required by quality_gates)"
         op = "<" if self.comparison == "minimum" else ">"
         req = "required" if self.comparison == "minimum" else "maximum"
         return f"{self.metric}:\n  {self.value} {op} {req} {self.threshold}"
@@ -34,6 +36,15 @@ class QualityGateChecker:
 
         for metric_name, gate in self.gates.items():
             if metric_name not in metrics:
+                if gate.required:
+                    failures.append(
+                        QualityGateFailure(
+                            metric=metric_name,
+                            value=float("nan"),
+                            threshold=gate.minimum or gate.maximum or 0.0,
+                            comparison="required",
+                        )
+                    )
                 continue
             value = float(metrics[metric_name])
             failure = self._check_gate(metric_name, value, gate)

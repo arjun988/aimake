@@ -1,6 +1,8 @@
 project:
   name: rag-example
   version: "1.0"
+  atomic_outputs: true
+  environment_mode: names
 
 artifacts:
 
@@ -48,6 +50,21 @@ artifacts:
       temperature: 1.0
     metrics:
       file: build/evaluation/results.json
+    external:
+      - name: embedder
+        provider: local
+        model: deterministic-hash-embedder
+        revision: "v1"
+    validation:
+      non_empty: true
+      min_size_bytes: 10
+      required_keys: [accuracy, f1, cost_usd]
+      min_value:
+        accuracy: 0.01
+      revalidate_on_cache_hit: true
+    cost_estimate:
+      cost_usd: 0.42
+      tokens: 1200
 
   report:
     type: report
@@ -60,10 +77,12 @@ artifacts:
 quality_gates:
   accuracy:
     minimum: 0.80
+    required: true
   latency_ms:
     maximum: 1000
   cost_usd:
     maximum: 1.00
+    required: true
 
 # Optional: automatic hyperparameter optimization
 optimization:

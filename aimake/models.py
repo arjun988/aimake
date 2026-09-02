@@ -53,6 +53,8 @@ class BuildPlanEntry:
     action: BuildAction
     status: ArtifactStatus
     reason: str = ""
+    estimated_cost_usd: float | None = None
+    estimated_tokens: int | None = None
 
 
 @dataclass
@@ -73,6 +75,22 @@ class BuildPlan:
     @property
     def to_restore(self) -> list[str]:
         return [e.name for e in self.entries if e.action == BuildAction.RESTORE]
+
+    @property
+    def estimated_total_cost_usd(self) -> float:
+        return sum(
+            e.estimated_cost_usd or 0.0
+            for e in self.entries
+            if e.action == BuildAction.RUN
+        )
+
+    @property
+    def estimated_total_tokens(self) -> int:
+        return sum(
+            e.estimated_tokens or 0
+            for e in self.entries
+            if e.action == BuildAction.RUN
+        )
 
 
 @dataclass

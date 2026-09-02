@@ -14,6 +14,17 @@ class ProjectConfig(BaseModel):
     version: str = "1.0"
     jobs: int = 0
     gpus: int = 0  # 0 = auto-detect local GPUs
+    environment_mode: str = "names"  # names | values — fingerprint env vars
+    volatile_environment: list[str] = Field(default_factory=list)
+    atomic_outputs: bool = True
+
+    @field_validator("environment_mode")
+    @classmethod
+    def normalize_environment_mode(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ("names", "values"):
+            raise ValueError("environment_mode must be 'names' or 'values'")
+        return v
 
 
 class ResourceConfig(BaseModel):
@@ -27,6 +38,34 @@ class MetricsConfig(BaseModel):
     """Configuration for parsing evaluation metrics."""
 
     file: str | None = None
+
+
+class ExternalDependencyConfig(BaseModel):
+    """Pinned external model/API dependency for reproducible fingerprints."""
+
+    name: str
+    provider: str | None = None
+    model: str | None = None
+    revision: str | None = None
+    volatile: bool = False
+
+
+class OutputValidationConfig(BaseModel):
+    """Post-build output validation (catches silent garbage outputs)."""
+
+    min_size_bytes: int | None = None
+    non_empty: bool = False
+    required_keys: list[str] = Field(default_factory=list)
+    min_rows: int | None = None
+    min_value: dict[str, float] = Field(default_factory=dict)
+    revalidate_on_cache_hit: bool = True
+
+
+class CostEstimateConfig(BaseModel):
+    """Estimated cost for planning stale steps."""
+
+    cost_usd: float | None = None
+    tokens: int | None = None
 
 
 class ArtifactConfig(BaseModel):
@@ -44,6 +83,10 @@ class ArtifactConfig(BaseModel):
     metrics: MetricsConfig | None = None
     resources: ResourceConfig = Field(default_factory=ResourceConfig)
     worker: str | None = None
+    external: list[ExternalDependencyConfig] = Field(default_factory=list)
+    validation: OutputValidationConfig | None = None
+    cost_estimate: CostEstimateConfig | None = None
+    atomic_outputs: bool | None = None
 
     @field_validator("type")
     @classmethod
@@ -77,6 +120,7 @@ class QualityGateConfig(BaseModel):
 
     minimum: float | None = None
     maximum: float | None = None
+    required: bool = False
 
 
 class S3CacheConfig(BaseModel):

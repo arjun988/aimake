@@ -3,10 +3,18 @@ import json
 import os
 from pathlib import Path
 
+try:
+    from aimake.utils.outputs import resolve_output
+except ImportError:
+    def resolve_output(relative_path: str, *, mkdir: bool = True) -> Path:
+        path = Path(relative_path)
+        if mkdir:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
 prompt_path = Path("prompts/system.txt")
 index_path = Path("build/index/index.json")
-output_dir = Path("build/evaluation")
-output_dir.mkdir(parents=True, exist_ok=True)
+output_dir = resolve_output("build/evaluation")
 
 temperature = float(os.environ.get("AIMAKE_PARAM_TEMPERATURE", "1.0"))
 
@@ -25,10 +33,11 @@ results = {
     "f1": round(f1, 3),
     "latency_ms": latency_ms,
     "cost_usd": cost_usd,
+    "tokens": int(index["count"] * 120),
     "temperature": temperature,
 }
 
-out = output_dir / "results.json"
+out = resolve_output("build/evaluation/results.json")
 with open(out, "w", encoding="utf-8") as f:
     json.dump(results, f, indent=2)
 

@@ -86,18 +86,43 @@ class Fingerprinter:
         if artifact.metadata:
             parts.append(f"metadata:{json.dumps(artifact.metadata, sort_keys=True)}")
 
-        # Environment variables (names + redacted values for secrets)
+        # External dependencies (pinned model/API provenance)
+        if artifact.external:
+            ext_parts = []
+            for dep in sorted(artifact.external, key=lambda d: d.name):
+                if dep.volatile:
+                    continue
+                ext_parts.append(
+                    f"{dep.name}:{dep.provider or ''}:{dep.model or ''}:{dep.revision or ''}"
+                )
+            if ext_parts:
+                parts.append(f"external:{';'.join(ext_parts)}")
+
+        # Output validation rules affect cache validity
+        if artifact.validation:
+            parts.append(
+                f"validation:{json.dumps(artifact.validation.model_dump(), sort_keys=True)}"
+            )
+
+        # Environment variables
         env_vars = list(set(self.config.environment + artifact.environment))
+        volatile = set(self.config.project.volatile_environment)
         if env_vars:
             env_parts = []
+            mode = self.config.project.environment_mode
             for var in sorted(env_vars):
-                value = os.environ.get(var, "")
-                # Redact likely secrets
-                if any(s in var.upper() for s in ("KEY", "SECRET", "TOKEN", "PASSWORD")):
-                    env_parts.append(f"{var}={SECRET_REDACTED}")
+                if var in volatile:
+                    continue
+                if mode == "values":
+                    value = os.environ.get(var, "")
+                    if any(s in var.upper() for s in ("KEY", "SECRET", "TOKEN", "PASSWORD")):
+                        env_parts.append(f"{var}={SECRET_REDACTED}")
+                    else:
+                        env_parts.append(f"{var}={value}")
                 else:
-                    env_parts.append(f"{var}={value}")
-            parts.append(f"environment:{';'.join(env_parts)}")
+                    env_parts.append(var)
+            if env_parts:
+                parts.append(f"environment:{';'.join(env_parts)}")
 
         # Dependency fingerprints
         for dep in sorted(node.dependencies):

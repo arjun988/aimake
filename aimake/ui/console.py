@@ -112,7 +112,24 @@ def print_status_table(
 def print_build_plan(plan: BuildPlan) -> None:
     rich_console.print("\n[bold]Build plan:[/bold]\n")
     for entry in plan.entries:
-        rich_console.print(f"  {action_label(entry.action)}  {entry.name}")
+        line = f"  {action_label(entry.action)}  {entry.name}"
+        if entry.action == BuildAction.RUN and (
+            entry.estimated_cost_usd is not None or entry.estimated_tokens is not None
+        ):
+            parts = []
+            if entry.estimated_cost_usd is not None:
+                parts.append(f"${entry.estimated_cost_usd:.2f}")
+            if entry.estimated_tokens is not None:
+                parts.append(f"{entry.estimated_tokens:,} tokens")
+            line += f"  [dim](est. {' · '.join(parts)})[/dim]"
+        rich_console.print(line)
+
+    if plan.estimated_total_cost_usd > 0 or plan.estimated_total_tokens > 0:
+        rich_console.print("\n[bold]Estimated cost (stale steps):[/bold]")
+        if plan.estimated_total_cost_usd > 0:
+            rich_console.print(f"  ${plan.estimated_total_cost_usd:.2f}")
+        if plan.estimated_total_tokens > 0:
+            rich_console.print(f"  {plan.estimated_total_tokens:,} tokens")
 
 
 def print_build_summary(result: BuildResult) -> None:

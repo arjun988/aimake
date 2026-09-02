@@ -9,6 +9,8 @@ from typing import Any, Callable
 
 from aimake.cache.store import Cache
 from aimake.config.schema import AimakeConfig
+from aimake.execution.output_staging import OutputStaging
+from aimake.execution.output_validation import OutputValidator
 from aimake.execution.process import ExecutionError, ProcessRunner
 from aimake.execution.scheduler import BuildScheduler, ScheduleResult
 from aimake.graph.dag import Graph
@@ -110,11 +112,13 @@ class BuildRunner:
             graph = self.graph.subgraph_for_targets(targets)
         stored = self.cache.get_stored_fingerprints()
         outputs_exist = self._check_outputs_exist(graph)
+        outputs_valid = self._check_outputs_valid(graph)
         self._statuses = self.planner.compute_statuses(
             self._fingerprints,
             stored,
             graph,
             outputs_exist=outputs_exist,
+            outputs_valid=outputs_valid,
             force=force,
         )
         return self._statuses
@@ -134,7 +138,9 @@ class BuildRunner:
             self.compute_fingerprints(targets=targets)
         if not self._statuses or targets:
             self.compute_statuses(force=force, targets=targets)
-        return planner.plan(self._statuses, force=force)
+        build_plan = planner.plan(self._statuses, force=force)
+        self._enrich_plan_costs(build_plan, graph)
+        return build_plan
 
     def explain(self, target: str) -> ExplainResult:
         if target not in self.graph:
@@ -388,6 +394,18 @@ class BuildRunner:
                     extra_env: dict[str, str] = {}
                     extra_env.update(self._parameter_env(node))
 
+                    atomic = node.config.atomic_outputs
+                    if atomic is None:
+                        atomic = self.config.project.atomic_outputs
+                    staging = OutputStaging(
+                        self.project_root,
+                        name,
+                        node.config.outputs,
+                        enabled=atomic and bool(node.config.outputs),
+                    )
+                    staging.prepare()
+                    extra_env.update(staging.staging_env())
+
                     try:
                         if gpu_needed > 0:
                             gpu_indices = self.resource_pool.acquire(gpu_needed, name) or []
@@ -434,65 +452,94 @@ class BuildRunner:
                             extra_env=extra_env or None,
                             worker=worker_cfg,
                         )
+
+                        missing = self.process.validate_outputs(
+                            node.config.outputs, self.project_root
+                        )
+                        if missing and staging.enabled:
+                            missing = self._missing_staged_outputs(
+                                node.config.outputs, staging
+                            )
+                        if missing:
+                            raise ExecutionError(
+                                name,
+                                node.config.command,
+                                0,
+                                f"Expected output does not exist: {', '.join(missing)}",
+                            )
+
+                        validation = self._validate_artifact_outputs(node, staging=staging)
+                        if not validation.valid:
+                            raise ExecutionError(
+                                name,
+                                node.config.command,
+                                0,
+                                "Output validation failed: "
+                                + "; ".join(validation.errors),
+                            )
+
+                        staging.promote()
+
+                        self._log(record.stdout)
+                        if record.stderr and self.verbose:
+                            self._log(record.stderr)
+
+                        self.db.log_execution(
+                            self._build_id,
+                            name,
+                            node.config.command,
+                            record.exit_code,
+                            record.stdout,
+                            record.stderr,
+                            record.start_time,
+                            record.end_time,
+                            record.duration,
+                        )
+
+                        metrics = self._parse_metrics(node)
+                        if node.config.metrics and node.config.metrics.file and not metrics:
+                            raise ExecutionError(
+                                name,
+                                node.config.command,
+                                0,
+                                f"Metrics file missing or invalid: {node.config.metrics.file}",
+                            )
+
+                        metadata = self._build_metadata(node)
+                        self.cache.store(
+                            name,
+                            fp,
+                            artifact_type=node.config.type,
+                            command=node.config.command,
+                            outputs=node.config.outputs,
+                            duration=record.duration,
+                            metadata=metadata,
+                            metrics=metrics,
+                        )
+                        self._emit_plugins(
+                            "on_artifact_complete",
+                            self._artifact_context(
+                                name,
+                                node,
+                                fp,
+                                graph,
+                                success=True,
+                                metadata=metadata,
+                                metrics=metrics,
+                                duration=record.duration,
+                            ),
+                        )
+                        self._maybe_register_artifact(name, fp, metadata=metadata, metrics=metrics)
+                    except Exception:
+                        staging.discard_partial()
+                        staging.restore_backup()
+                        raise
                     finally:
                         if gpu_indices:
                             self.resource_pool.release(gpu_indices)
                         if worker_state:
                             self.worker_pool.release(worker_state, gpu_needed)
-
-                    self._log(record.stdout)
-                    if record.stderr and self.verbose:
-                        self._log(record.stderr)
-
-                    missing = self.process.validate_outputs(
-                        node.config.outputs, self.project_root
-                    )
-                    if missing:
-                        raise ExecutionError(
-                            name,
-                            node.config.command,
-                            0,
-                            f"Expected output does not exist: {', '.join(missing)}",
-                        )
-
-                    self.db.log_execution(
-                        self._build_id,
-                        name,
-                        node.config.command,
-                        record.exit_code,
-                        record.stdout,
-                        record.stderr,
-                        record.start_time,
-                        record.end_time,
-                        record.duration,
-                    )
-
-                    metrics = self._parse_metrics(node)
-                    metadata = self._build_metadata(node)
-                    self.cache.store(
-                        name,
-                        fp,
-                        artifact_type=node.config.type,
-                        command=node.config.command,
-                        outputs=node.config.outputs,
-                        duration=record.duration,
-                        metadata=metadata,
-                        metrics=metrics,
-                    )
-                    self._emit_plugins(
-                        "on_artifact_complete",
-                        self._artifact_context(
-                            name,
-                            node,
-                            fp,
-                            graph,
-                            success=True,
-                            metadata=metadata,
-                            metrics=metrics,
-                            duration=record.duration,
-                        ),
-                    )
-                    self._maybe_register_artifact(name, fp, metadata=metadata, metrics=metrics)
+                        staging.cleanup()
                 else:
                     metadata = self._build_metadata(node)
                     self.cache.store(
@@ -724,6 +771,73 @@ class BuildRunner:
             else:
                 result[node.name] = True
         return result
+
+    def _check_outputs_valid(self, graph: Graph | None = None) -> dict[str, bool]:
+        graph = graph or self.graph
+        validator = OutputValidator(self.project_root)
+        result: dict[str, bool] = {}
+        for node in graph:
+            cfg = node.config.validation
+            if not cfg or not cfg.revalidate_on_cache_hit:
+                result[node.name] = True
+                continue
+            if not node.config.outputs and not (node.config.metrics and node.config.metrics.file):
+                result[node.name] = True
+                continue
+            metrics_file = node.config.metrics.file if node.config.metrics else None
+            vr = validator.validate(
+                node.config.outputs,
+                cfg,
+                metrics_file=metrics_file,
+            )
+            result[node.name] = vr.valid
+        return result
+
+    def _validate_artifact_outputs(
+        self, node, *, staging: OutputStaging | None = None
+    ):
+        root = self.project_root
+        if staging and staging.enabled:
+            root = staging._staging_root
+        validator = OutputValidator(root)
+        metrics_file = node.config.metrics.file if node.config.metrics else None
+        return validator.validate(
+            node.config.outputs,
+            node.config.validation,
+            metrics_file=metrics_file,
+        )
+
+    @staticmethod
+    def _missing_staged_outputs(outputs: list[str], staging: OutputStaging) -> list[str]:
+        missing = []
+        for rel in outputs:
+            staged = staging._staging_root / rel
+            final = staging.project_root / rel
+            if not staged.exists() and not final.exists():
+                missing.append(rel)
+        return missing
+
+    def _enrich_plan_costs(self, plan: BuildPlan, graph: Graph) -> None:
+        for entry in plan.entries:
+            if entry.action != BuildAction.RUN:
+                continue
+            node = graph.get(entry.name)
+            cost, tokens = self._estimate_cost(node)
+            entry.estimated_cost_usd = cost
+            entry.estimated_tokens = tokens
+
+    def _estimate_cost(self, node) -> tuple[float | None, int | None]:
+        if node.config.cost_estimate:
+            return node.config.cost_estimate.cost_usd, node.config.cost_estimate.tokens
+        state = self.cache.get_artifact_state(node.name)
+        if state and state.metrics:
+            cost = state.metrics.get("cost_usd")
+            tokens = state.metrics.get("tokens") or state.metrics.get("total_tokens")
+            return (
+                float(cost) if cost is not None else None,
+                int(tokens) if tokens is not None else None,
+            )
+        return None, None
 
     def _setup_log(self) -> None:
         from aimake.constants import LOGS_DIR
