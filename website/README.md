@@ -33,6 +33,10 @@ npm run build
 npm start          # also serves on port 3001
 ```
 
+## Analytics
+
+[Vercel Analytics](https://vercel.com/docs/analytics) is enabled via `<Analytics />` in `app/layout.tsx`. Page views are collected on production deployments (e.g. [aimake-doc.vercel.app](https://aimake-doc.vercel.app/)). Local `npm run dev` does not send production traffic.
+
 ## Project layout
 
 | Path | Purpose |
