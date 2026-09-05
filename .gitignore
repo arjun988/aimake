@@ -48,3 +48,6 @@ dashboard/node_modules/
 dashboard/.next/
 website/node_modules/
 website/.next/
+extension/node_modules/
+extension/out/
+extension/*.vsix

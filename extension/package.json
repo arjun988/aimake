@@ -1,0 +1,187 @@
+{
+  "name": "aimake",
+  "displayName": "aimake",
+  "description": "Incremental AI pipeline builds — plan, explain, and rebuild from the sidebar",
+  "version": "0.1.0",
+  "publisher": "aimake",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arjun988/aimake.git",
+    "directory": "extension"
+  },
+  "homepage": "https://aimake-doc.vercel.app/",
+  "bugs": {
+    "url": "https://github.com/arjun988/aimake/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Data Science"
+  ],
+  "keywords": [
+    "aimake",
+    "ml",
+    "pipeline",
+    "cache"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:**/aimake.yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aimake",
+          "title": "aimake",
+          "icon": "media/aimake.svg"
+        }
+      ]
+    },
+    "views": {
+      "aimake": [
+        {
+          "id": "aimake.planView",
+          "name": "Plan"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aimake.refreshPlan",
+        "title": "aimake: Refresh Plan",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aimake.buildAll",
+        "title": "aimake: Build All",
+        "icon": "$(play)"
+      },
+      {
+        "command": "aimake.buildStale",
+        "title": "aimake: Build Stale",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "aimake.buildTarget",
+        "title": "aimake: Build Target",
+        "icon": "$(play)"
+      },
+      {
+        "command": "aimake.explainTarget",
+        "title": "aimake: Explain Target",
+        "icon": "$(info)"
+      },
+      {
+        "command": "aimake.openConfig",
+        "title": "aimake: Open Config",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "aimake.doctor",
+        "title": "aimake: Doctor",
+        "icon": "$(heart)"
+      },
+      {
+        "command": "aimake.showCost",
+        "title": "aimake: Show Cost Estimate",
+        "icon": "$(credit-card)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "aimake.refreshPlan",
+          "when": "view == aimake.planView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "aimake.buildStale",
+          "when": "view == aimake.planView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "aimake.buildAll",
+          "when": "view == aimake.planView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "aimake.openConfig",
+          "when": "view == aimake.planView",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aimake.buildTarget",
+          "when": "view == aimake.planView && viewItem == aimake.run",
+          "group": "inline@1"
+        },
+        {
+          "command": "aimake.explainTarget",
+          "when": "view == aimake.planView && viewItem =~ /aimake\\.(run|skip|restore)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "aimake.buildTarget",
+          "when": "view == aimake.planView && viewItem == aimake.run",
+          "group": "1_build@1"
+        },
+        {
+          "command": "aimake.explainTarget",
+          "when": "view == aimake.planView && viewItem =~ /aimake\\.(run|skip|restore)/",
+          "group": "1_build@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "aimake.buildTarget",
+          "when": "false"
+        },
+        {
+          "command": "aimake.explainTarget",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "aimake",
+      "properties": {
+        "aimake.cliPath": {
+          "type": "string",
+          "default": "aimake",
+          "description": "Path to the aimake CLI. Leave as \"aimake\" to use PATH, or set the full path to venv/Scripts/aimake.exe (Windows) / venv/bin/aimake. The extension also auto-detects nearby venv/.venv folders."
+        },
+        "aimake.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to aimake.yaml (relative to workspace or absolute). Leave empty to auto-discover."
+        },
+        "aimake.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh the plan when aimake.yaml changes."
+        },
+        "aimake.project": {
+          "type": "string",
+          "default": "",
+          "description": "Optional monorepo project name passed as aimake -P / --project."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}

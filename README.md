@@ -172,6 +172,18 @@ npm install && npm run dev
 
 Open http://localhost:3001. See [website/README.md](website/README.md).
 
+### VS Code / Cursor extension
+
+Sidebar plan (stale / reuse / restore), status-bar cost, build & explain from the editor:
+
+```bash
+cd extension
+npm install && npm run compile
+# Press F5 in VS Code/Cursor, or: npx @vscode/vsce package
+```
+
+See [extension/README.md](extension/README.md) and docs: [VS Code / Cursor](https://aimake-doc.vercel.app/docs/vscode-extension).
+
 ### Web dashboard
 
 ```bash

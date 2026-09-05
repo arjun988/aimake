@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **VS Code / Cursor extension (#3):** [`extension/`](extension/) — activity-bar plan tree (stale/reuse/restore), status-bar cost, build/explain/doctor commands, auto-refresh on save
+
 ## [2.0.0] - 2026-09-02
 
 ### Added

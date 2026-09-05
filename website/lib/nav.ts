@@ -57,6 +57,7 @@ export const DOCS_NAV: NavSection[] = [
       { title: "TypeScript SDK", href: "/docs/sdk-typescript" },
       { title: "Docker", href: "/docs/docker" },
       { title: "Interactive TUI", href: "/docs/tui" },
+      { title: "VS Code / Cursor", href: "/docs/vscode-extension" },
     ],
   },
   {
